@@ -1,0 +1,3026 @@
+animasi background
+
+import LightRays from './LightRays';
+
+<div style={{ width: '100%', height: '600px', position: 'relative' }}>
+  <LightRays
+    raysOrigin="top-center"
+    raysColor="#ffffff"
+    raysSpeed={1}
+    lightSpread={0.5}
+    rayLength={3}
+    followMouse={true}
+    mouseInfluence={0.1}
+    noiseAmount={0}
+    distortion={0}
+    className="custom-rays"
+    pulsating={false}
+    fadeDistance={1}
+    saturation={1}
+/>
+</div>
+
+import { useRef, useEffect, useState } from 'react';
+import { Renderer, Program, Triangle, Mesh } from 'ogl';
+import './LightRays.css';
+
+const DEFAULT_COLOR = '#ffffff';
+
+const hexToRgb = hex => {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return m ? [parseInt(m[1], 16) / 255, parseInt(m[2], 16) / 255, parseInt(m[3], 16) / 255] : [1, 1, 1];
+};
+
+const getAnchorAndDir = (origin, w, h) => {
+  const outside = 0.2;
+  switch (origin) {
+    case 'top-left':
+      return { anchor: [0, -outside * h], dir: [0, 1] };
+    case 'top-right':
+      return { anchor: [w, -outside * h], dir: [0, 1] };
+    case 'left':
+      return { anchor: [-outside * w, 0.5 * h], dir: [1, 0] };
+    case 'right':
+      return { anchor: [(1 + outside) * w, 0.5 * h], dir: [-1, 0] };
+    case 'bottom-left':
+      return { anchor: [0, (1 + outside) * h], dir: [0, -1] };
+    case 'bottom-center':
+      return { anchor: [0.5 * w, (1 + outside) * h], dir: [0, -1] };
+    case 'bottom-right':
+      return { anchor: [w, (1 + outside) * h], dir: [0, -1] };
+    default: // "top-center"
+      return { anchor: [0.5 * w, -outside * h], dir: [0, 1] };
+  }
+};
+
+const LightRays = ({
+  raysOrigin = 'top-center',
+  raysColor = DEFAULT_COLOR,
+  raysSpeed = 1,
+  lightSpread = 1,
+  rayLength = 2,
+  pulsating = false,
+  fadeDistance = 1.0,
+  saturation = 1.0,
+  followMouse = true,
+  mouseInfluence = 0.1,
+  noiseAmount = 0.0,
+  distortion = 0.0,
+  className = ''
+}) => {
+  const containerRef = useRef(null);
+  const uniformsRef = useRef(null);
+  const rendererRef = useRef(null);
+  const mouseRef = useRef({ x: 0.5, y: 0.5 });
+  const smoothMouseRef = useRef({ x: 0.5, y: 0.5 });
+  const animationIdRef = useRef(null);
+  const meshRef = useRef(null);
+  const cleanupFunctionRef = useRef(null);
+  const [isVisible, setIsVisible] = useState(false);
+  const observerRef = useRef(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    observerRef.current = new IntersectionObserver(
+      entries => {
+        const entry = entries[0];
+        setIsVisible(entry.isIntersecting);
+      },
+      { threshold: 0.1 }
+    );
+
+    observerRef.current.observe(containerRef.current);
+
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+        observerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isVisible || !containerRef.current) return;
+
+    if (cleanupFunctionRef.current) {
+      cleanupFunctionRef.current();
+      cleanupFunctionRef.current = null;
+    }
+
+    const initializeWebGL = async () => {
+      if (!containerRef.current) return;
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      if (!containerRef.current) return;
+
+      const renderer = new Renderer({
+        dpr: Math.min(window.devicePixelRatio, 2),
+        alpha: true
+      });
+      rendererRef.current = renderer;
+
+      const gl = renderer.gl;
+      gl.canvas.style.width = '100%';
+      gl.canvas.style.height = '100%';
+
+      while (containerRef.current.firstChild) {
+        containerRef.current.removeChild(containerRef.current.firstChild);
+      }
+      containerRef.current.appendChild(gl.canvas);
+
+      const vert = `
+attribute vec2 position;
+varying vec2 vUv;
+void main() {
+  vUv = position * 0.5 + 0.5;
+  gl_Position = vec4(position, 0.0, 1.0);
+}`;
+
+      const frag = `precision highp float;
+
+uniform float iTime;
+uniform vec2  iResolution;
+
+uniform vec2  rayPos;
+uniform vec2  rayDir;
+uniform vec3  raysColor;
+uniform float raysSpeed;
+uniform float lightSpread;
+uniform float rayLength;
+uniform float pulsating;
+uniform float fadeDistance;
+uniform float saturation;
+uniform vec2  mousePos;
+uniform float mouseInfluence;
+uniform float noiseAmount;
+uniform float distortion;
+
+varying vec2 vUv;
+
+float noise(vec2 st) {
+  return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+}
+
+float rayStrength(vec2 raySource, vec2 rayRefDirection, vec2 coord,
+                  float seedA, float seedB, float speed) {
+  vec2 sourceToCoord = coord - raySource;
+  vec2 dirNorm = normalize(sourceToCoord);
+  float cosAngle = dot(dirNorm, rayRefDirection);
+
+  float distortedAngle = cosAngle + distortion * sin(iTime * 2.0 + length(sourceToCoord) * 0.01) * 0.2;
+  
+  float spreadFactor = pow(max(distortedAngle, 0.0), 1.0 / max(lightSpread, 0.001));
+
+  float distance = length(sourceToCoord);
+  float maxDistance = iResolution.x * rayLength;
+  float lengthFalloff = clamp((maxDistance - distance) / maxDistance, 0.0, 1.0);
+  
+  float fadeFalloff = clamp((iResolution.x * fadeDistance - distance) / (iResolution.x * fadeDistance), 0.5, 1.0);
+  float pulse = pulsating > 0.5 ? (0.8 + 0.2 * sin(iTime * speed * 3.0)) : 1.0;
+
+  float baseStrength = clamp(
+    (0.45 + 0.15 * sin(distortedAngle * seedA + iTime * speed)) +
+    (0.3 + 0.2 * cos(-distortedAngle * seedB + iTime * speed)),
+    0.0, 1.0
+  );
+
+  return baseStrength * lengthFalloff * fadeFalloff * spreadFactor * pulse;
+}
+
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+  vec2 coord = vec2(fragCoord.x, iResolution.y - fragCoord.y);
+  
+  vec2 finalRayDir = rayDir;
+  if (mouseInfluence > 0.0) {
+    vec2 mouseScreenPos = mousePos * iResolution.xy;
+    vec2 mouseDirection = normalize(mouseScreenPos - rayPos);
+    finalRayDir = normalize(mix(rayDir, mouseDirection, mouseInfluence));
+  }
+
+  vec4 rays1 = vec4(1.0) *
+               rayStrength(rayPos, finalRayDir, coord, 36.2214, 21.11349,
+                           1.5 * raysSpeed);
+  vec4 rays2 = vec4(1.0) *
+               rayStrength(rayPos, finalRayDir, coord, 22.3991, 18.0234,
+                           1.1 * raysSpeed);
+
+  fragColor = rays1 * 0.5 + rays2 * 0.4;
+
+  if (noiseAmount > 0.0) {
+    float n = noise(coord * 0.01 + iTime * 0.1);
+    fragColor.rgb *= (1.0 - noiseAmount + noiseAmount * n);
+  }
+
+  float brightness = 1.0 - (coord.y / iResolution.y);
+  fragColor.x *= 0.1 + brightness * 0.8;
+  fragColor.y *= 0.3 + brightness * 0.6;
+  fragColor.z *= 0.5 + brightness * 0.5;
+
+  if (saturation != 1.0) {
+    float gray = dot(fragColor.rgb, vec3(0.299, 0.587, 0.114));
+    fragColor.rgb = mix(vec3(gray), fragColor.rgb, saturation);
+  }
+
+  fragColor.rgb *= raysColor;
+}
+
+void main() {
+  vec4 color;
+  mainImage(color, gl_FragCoord.xy);
+  gl_FragColor  = color;
+}`;
+
+      const uniforms = {
+        iTime: { value: 0 },
+        iResolution: { value: [1, 1] },
+
+        rayPos: { value: [0, 0] },
+        rayDir: { value: [0, 1] },
+
+        raysColor: { value: hexToRgb(raysColor) },
+        raysSpeed: { value: raysSpeed },
+        lightSpread: { value: lightSpread },
+        rayLength: { value: rayLength },
+        pulsating: { value: pulsating ? 1.0 : 0.0 },
+        fadeDistance: { value: fadeDistance },
+        saturation: { value: saturation },
+        mousePos: { value: [0.5, 0.5] },
+        mouseInfluence: { value: mouseInfluence },
+        noiseAmount: { value: noiseAmount },
+        distortion: { value: distortion }
+      };
+      uniformsRef.current = uniforms;
+
+      const geometry = new Triangle(gl);
+      const program = new Program(gl, {
+        vertex: vert,
+        fragment: frag,
+        uniforms
+      });
+      const mesh = new Mesh(gl, { geometry, program });
+      meshRef.current = mesh;
+
+      const updatePlacement = () => {
+        if (!containerRef.current || !renderer) return;
+
+        renderer.dpr = Math.min(window.devicePixelRatio, 2);
+
+        const { clientWidth: wCSS, clientHeight: hCSS } = containerRef.current;
+        renderer.setSize(wCSS, hCSS);
+
+        const dpr = renderer.dpr;
+        const w = wCSS * dpr;
+        const h = hCSS * dpr;
+
+        uniforms.iResolution.value = [w, h];
+
+        const { anchor, dir } = getAnchorAndDir(raysOrigin, w, h);
+        uniforms.rayPos.value = anchor;
+        uniforms.rayDir.value = dir;
+      };
+
+      const loop = t => {
+        if (!rendererRef.current || !uniformsRef.current || !meshRef.current) {
+          return;
+        }
+
+        uniforms.iTime.value = t * 0.001;
+
+        if (followMouse && mouseInfluence > 0.0) {
+          const smoothing = 0.92;
+
+          smoothMouseRef.current.x = smoothMouseRef.current.x * smoothing + mouseRef.current.x * (1 - smoothing);
+          smoothMouseRef.current.y = smoothMouseRef.current.y * smoothing + mouseRef.current.y * (1 - smoothing);
+
+          uniforms.mousePos.value = [smoothMouseRef.current.x, smoothMouseRef.current.y];
+        }
+
+        try {
+          renderer.render({ scene: mesh });
+          animationIdRef.current = requestAnimationFrame(loop);
+        } catch (error) {
+          console.warn('WebGL rendering error:', error);
+          return;
+        }
+      };
+
+      window.addEventListener('resize', updatePlacement);
+      updatePlacement();
+      animationIdRef.current = requestAnimationFrame(loop);
+
+      cleanupFunctionRef.current = () => {
+        if (animationIdRef.current) {
+          cancelAnimationFrame(animationIdRef.current);
+          animationIdRef.current = null;
+        }
+
+        window.removeEventListener('resize', updatePlacement);
+
+        if (renderer) {
+          try {
+            const canvas = renderer.gl.canvas;
+            const loseContextExt = renderer.gl.getExtension('WEBGL_lose_context');
+            if (loseContextExt) {
+              loseContextExt.loseContext();
+            }
+
+            if (canvas && canvas.parentNode) {
+              canvas.parentNode.removeChild(canvas);
+            }
+          } catch (error) {
+            console.warn('Error during WebGL cleanup:', error);
+          }
+        }
+
+        rendererRef.current = null;
+        uniformsRef.current = null;
+        meshRef.current = null;
+      };
+    };
+
+    initializeWebGL();
+
+    return () => {
+      if (cleanupFunctionRef.current) {
+        cleanupFunctionRef.current();
+        cleanupFunctionRef.current = null;
+      }
+    };
+  }, [
+    isVisible,
+    raysOrigin,
+    raysColor,
+    raysSpeed,
+    lightSpread,
+    rayLength,
+    pulsating,
+    fadeDistance,
+    saturation,
+    followMouse,
+    mouseInfluence,
+    noiseAmount,
+    distortion
+  ]);
+
+  useEffect(() => {
+    if (!uniformsRef.current || !containerRef.current || !rendererRef.current) return;
+
+    const u = uniformsRef.current;
+    const renderer = rendererRef.current;
+
+    u.raysColor.value = hexToRgb(raysColor);
+    u.raysSpeed.value = raysSpeed;
+    u.lightSpread.value = lightSpread;
+    u.rayLength.value = rayLength;
+    u.pulsating.value = pulsating ? 1.0 : 0.0;
+    u.fadeDistance.value = fadeDistance;
+    u.saturation.value = saturation;
+    u.mouseInfluence.value = mouseInfluence;
+    u.noiseAmount.value = noiseAmount;
+    u.distortion.value = distortion;
+
+    const { clientWidth: wCSS, clientHeight: hCSS } = containerRef.current;
+    const dpr = renderer.dpr;
+    const { anchor, dir } = getAnchorAndDir(raysOrigin, wCSS * dpr, hCSS * dpr);
+    u.rayPos.value = anchor;
+    u.rayDir.value = dir;
+  }, [
+    raysColor,
+    raysSpeed,
+    lightSpread,
+    raysOrigin,
+    rayLength,
+    pulsating,
+    fadeDistance,
+    saturation,
+    mouseInfluence,
+    noiseAmount,
+    distortion
+  ]);
+
+  useEffect(() => {
+    const handleMouseMove = e => {
+      if (!containerRef.current || !rendererRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width;
+      const y = (e.clientY - rect.top) / rect.height;
+      mouseRef.current = { x, y };
+    };
+
+    if (followMouse) {
+      window.addEventListener('mousemove', handleMouseMove);
+      return () => window.removeEventListener('mousemove', handleMouseMove);
+    }
+  }, [followMouse]);
+
+  return <div ref={containerRef} className={`light-rays-container ${className}`.trim()} />;
+};
+
+export default LightRays;
+
+.light-rays-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  pointer-events: none;
+  z-index: 3;
+  overflow: hidden;
+}
+
+
+
+animasi_lanyard (harus di tempat istimewa dari bagian lainnya (lanyard ini juga harus menyesuaikan dengan desai agar responsif))
+
+import Lanyard from './Lanyard'
+
+<Lanyard position={[0, 0, 20]} gravity={[0, -40, 0]} />
+
+// Pass custom images for the card's front/back faces and/or the lanyard band.
+// frontImage and backImage render independently; imageFit keeps aspect ratio.
+// lanyardWidth widens the band so a custom band image has more room.
+<Lanyard
+  position={[0,0,24]}
+  gravity={[0,-40,0]}
+  frontImage="/my-front.png"
+  backImage="/my-back.png"
+  imageFit="cover"
+  lanyardImage="/my-band.png"
+  lanyardWidth={1}
+/>
+
+/* IMPORTANT INFO BELOW
+
+1. You MUST have the card.glb and lanyard.png files in your project and import them
+- these can be downloaded from the repo's files, under src/assets/lanyard
+
+2. You can edit your card.glb file in this online .glb editor and change the texture:
+- https://modelviewer.dev/editor/
+- alternatively, pass the "frontImage" / "backImage" props to swap the card's faces at runtime
+
+4. The png file is the texture for the lanyard's band and can be edited in any image editor
+
+5. Your Vite configuration must be updated to include the following in vite.config.js:
+assetsInclude: ['**/*.glb']
+
+6. For TS users, you might need these changes:
+
+- src/global.d.ts
+export { };
+
+declare module '*.glb';
+declare module '*.png';
+
+declare module 'meshline' {
+  export const MeshLineGeometry: any;
+  export const MeshLineMaterial: any;
+}
+
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      meshLineGeometry: any;
+      meshLineMaterial: any;
+    }
+  }
+}
+
+- src/vite-env.d.ts
+/// <reference types="vite/client" />
+declare module '*.glb';
+declare module '*.png';
+*/
+
+/* eslint-disable react/no-unknown-property */
+'use client';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Canvas, extend, useFrame } from '@react-three/fiber';
+import { useGLTF, useTexture, Environment, Lightformer } from '@react-three/drei';
+import { BallCollider, CuboidCollider, Physics, RigidBody, useRopeJoint, useSphericalJoint } from '@react-three/rapier';
+import { MeshLineGeometry, MeshLineMaterial } from 'meshline';
+
+// replace with your own imports, see the usage snippet for details
+import cardGLB from './card.glb';
+import lanyard from './lanyard.png';
+
+import * as THREE from 'three';
+import './Lanyard.css';
+
+extend({ MeshLineGeometry, MeshLineMaterial });
+
+// 1x1 transparent pixel — lets useTexture be called unconditionally when a
+// front/back image isn't supplied.
+const BLANK_PIXEL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+// The card model's front face is UV-mapped to the LEFT half of the texture
+// atlas and the back face to the RIGHT half (measured from card.glb). Each
+// custom image is composited into its own half so the two faces render
+// independently, aspect-preserving (no stretching).
+const FRONT_UV_RECT = { x: 0, y: 0, w: 0.5, h: 0.755 };
+const BACK_UV_RECT = { x: 0.5, y: 0, w: 0.5, h: 0.757 };
+
+export default function Lanyard({
+  position = [0, 0, 30],
+  gravity = [0, -40, 0],
+  fov = 20,
+  transparent = true,
+  frontImage = null,
+  backImage = null,
+  imageFit = 'cover',
+  lanyardImage = null,
+  lanyardWidth = 1
+}) {
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  return (
+    <div className="lanyard-wrapper">
+      <Canvas
+        camera={{ position: position, fov: fov }}
+        dpr={[1, isMobile ? 1.5 : 2]}
+        gl={{ alpha: transparent }}
+        onCreated={({ gl }) => gl.setClearColor(new THREE.Color(0x000000), transparent ? 0 : 1)}
+      >
+        <ambientLight intensity={Math.PI} />
+        <Physics gravity={gravity} timeStep={isMobile ? 1 / 30 : 1 / 60}>
+          <Band
+            isMobile={isMobile}
+            frontImage={frontImage}
+            backImage={backImage}
+            imageFit={imageFit}
+            lanyardImage={lanyardImage}
+            lanyardWidth={lanyardWidth}
+          />
+        </Physics>
+        <Environment blur={0.75}>
+          <Lightformer
+            intensity={2}
+            color="white"
+            position={[0, -1, 5]}
+            rotation={[0, 0, Math.PI / 3]}
+            scale={[100, 0.1, 1]}
+          />
+          <Lightformer
+            intensity={3}
+            color="white"
+            position={[-1, -1, 1]}
+            rotation={[0, 0, Math.PI / 3]}
+            scale={[100, 0.1, 1]}
+          />
+          <Lightformer
+            intensity={3}
+            color="white"
+            position={[1, 1, 1]}
+            rotation={[0, 0, Math.PI / 3]}
+            scale={[100, 0.1, 1]}
+          />
+          <Lightformer
+            intensity={10}
+            color="white"
+            position={[-10, 0, 14]}
+            rotation={[0, Math.PI / 2, Math.PI / 3]}
+            scale={[100, 10, 1]}
+          />
+        </Environment>
+      </Canvas>
+    </div>
+  );
+}
+function Band({
+  maxSpeed = 50,
+  minSpeed = 0,
+  isMobile = false,
+  frontImage = null,
+  backImage = null,
+  imageFit = 'cover',
+  lanyardImage = null,
+  lanyardWidth = 1
+}) {
+  const band = useRef(),
+    fixed = useRef(),
+    j1 = useRef(),
+    j2 = useRef(),
+    j3 = useRef(),
+    card = useRef();
+  const vec = new THREE.Vector3(),
+    ang = new THREE.Vector3(),
+    rot = new THREE.Vector3(),
+    dir = new THREE.Vector3();
+  const segmentProps = { type: 'dynamic', canSleep: true, colliders: false, angularDamping: 4, linearDamping: 4 };
+  const { nodes, materials } = useGLTF(cardGLB);
+  const texture = useTexture(lanyardImage || lanyard);
+  // useTexture must be called unconditionally; use a blank pixel when an image
+  // isn't supplied for a given face, then skip compositing it below.
+  const frontTex = useTexture(frontImage || BLANK_PIXEL);
+  const backTex = useTexture(backImage || BLANK_PIXEL);
+
+  // Composite the front/back images into the card's texture atlas (front = left
+  // half, back = right half). Each image is drawn aspect-preserving (no stretch).
+  const cardMap = useMemo(() => {
+    const baseMap = materials.base.map;
+    if (!frontImage && !backImage) return baseMap;
+
+    const baseImg = baseMap.image;
+    const W = baseImg.width;
+    const H = baseImg.height;
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return baseMap;
+    // Keep the original baked atlas for the card edges and any untouched face.
+    ctx.drawImage(baseImg, 0, 0, W, H);
+
+    const drawFitted = (img, rect) => {
+      const rx = rect.x * W;
+      const ry = rect.y * H;
+      const rw = rect.w * W;
+      const rh = rect.h * H;
+      const pick = imageFit === 'contain' ? Math.min : Math.max;
+      const scale = pick(rw / img.width, rh / img.height);
+      const dw = img.width * scale;
+      const dh = img.height * scale;
+      const dx = rx + (rw - dw) / 2;
+      const dy = ry + (rh - dh) / 2;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(rx, ry, rw, rh);
+      ctx.clip();
+      ctx.drawImage(img, dx, dy, dw, dh);
+      ctx.restore();
+    };
+
+    if (frontImage && frontTex.image) drawFitted(frontTex.image, FRONT_UV_RECT);
+    if (backImage && backTex.image) drawFitted(backTex.image, BACK_UV_RECT);
+
+    const composite = new THREE.CanvasTexture(canvas);
+    composite.colorSpace = THREE.SRGBColorSpace;
+    composite.flipY = baseMap.flipY;
+    composite.anisotropy = 16;
+    composite.needsUpdate = true;
+    return composite;
+  }, [frontImage, backImage, imageFit, frontTex, backTex, materials.base.map]);
+  const [curve] = useState(
+    () =>
+      new THREE.CatmullRomCurve3([new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()])
+  );
+  const [dragged, drag] = useState(false);
+  const [hovered, hover] = useState(false);
+
+  useRopeJoint(fixed, j1, [[0, 0, 0], [0, 0, 0], 1]);
+  useRopeJoint(j1, j2, [[0, 0, 0], [0, 0, 0], 1]);
+  useRopeJoint(j2, j3, [[0, 0, 0], [0, 0, 0], 1]);
+  useSphericalJoint(j3, card, [
+    [0, 0, 0],
+    [0, 1.5, 0]
+  ]);
+
+  useEffect(() => {
+    if (hovered) {
+      document.body.style.cursor = dragged ? 'grabbing' : 'grab';
+      return () => void (document.body.style.cursor = 'auto');
+    }
+  }, [hovered, dragged]);
+
+  useFrame((state, delta) => {
+    if (dragged) {
+      vec.set(state.pointer.x, state.pointer.y, 0.5).unproject(state.camera);
+      dir.copy(vec).sub(state.camera.position).normalize();
+      vec.add(dir.multiplyScalar(state.camera.position.length()));
+      [card, j1, j2, j3, fixed].forEach(ref => ref.current?.wakeUp());
+      card.current?.setNextKinematicTranslation({ x: vec.x - dragged.x, y: vec.y - dragged.y, z: vec.z - dragged.z });
+    }
+    if (fixed.current) {
+      [j1, j2].forEach(ref => {
+        if (!ref.current.lerped) ref.current.lerped = new THREE.Vector3().copy(ref.current.translation());
+        const clampedDistance = Math.max(0.1, Math.min(1, ref.current.lerped.distanceTo(ref.current.translation())));
+        ref.current.lerped.lerp(
+          ref.current.translation(),
+          delta * (minSpeed + clampedDistance * (maxSpeed - minSpeed))
+        );
+      });
+      curve.points[0].copy(j3.current.translation());
+      curve.points[1].copy(j2.current.lerped);
+      curve.points[2].copy(j1.current.lerped);
+      curve.points[3].copy(fixed.current.translation());
+      band.current.geometry.setPoints(curve.getPoints(isMobile ? 16 : 32));
+      ang.copy(card.current.angvel());
+      rot.copy(card.current.rotation());
+      card.current.setAngvel({ x: ang.x, y: ang.y - rot.y * 0.25, z: ang.z });
+    }
+  });
+
+  curve.curveType = 'chordal';
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+
+  return (
+    <>
+      <group position={[0, 4, 0]}>
+        <RigidBody ref={fixed} {...segmentProps} type="fixed" />
+        <RigidBody position={[0.5, 0, 0]} ref={j1} {...segmentProps}>
+          <BallCollider args={[0.1]} />
+        </RigidBody>
+        <RigidBody position={[1, 0, 0]} ref={j2} {...segmentProps}>
+          <BallCollider args={[0.1]} />
+        </RigidBody>
+        <RigidBody position={[1.5, 0, 0]} ref={j3} {...segmentProps}>
+          <BallCollider args={[0.1]} />
+        </RigidBody>
+        <RigidBody position={[2, 0, 0]} ref={card} {...segmentProps} type={dragged ? 'kinematicPosition' : 'dynamic'}>
+          <CuboidCollider args={[0.8, 1.125, 0.01]} />
+          <group
+            scale={2.25}
+            position={[0, -1.2, -0.05]}
+            onPointerOver={() => hover(true)}
+            onPointerOut={() => hover(false)}
+            onPointerUp={e => (e.target.releasePointerCapture(e.pointerId), drag(false))}
+            onPointerDown={e => (
+              e.target.setPointerCapture(e.pointerId),
+              drag(new THREE.Vector3().copy(e.point).sub(vec.copy(card.current.translation())))
+            )}
+          >
+            <mesh geometry={nodes.card.geometry}>
+              <meshPhysicalMaterial
+                map={cardMap}
+                map-anisotropy={16}
+                clearcoat={isMobile ? 0 : 1}
+                clearcoatRoughness={0.15}
+                roughness={0.9}
+                metalness={0.8}
+              />
+            </mesh>
+            <mesh geometry={nodes.clip.geometry} material={materials.metal} material-roughness={0.3} />
+            <mesh geometry={nodes.clamp.geometry} material={materials.metal} />
+          </group>
+        </RigidBody>
+      </group>
+      <mesh ref={band}>
+        <meshLineGeometry />
+        <meshLineMaterial
+          color="white"
+          depthTest={false}
+          resolution={isMobile ? [1000, 2000] : [1000, 1000]}
+          useMap
+          map={texture}
+          repeat={[-4, 1]}
+          lineWidth={lanyardWidth}
+        />
+      </mesh>
+    </>
+  );
+}
+
+
+.lanyard-wrapper {
+  position: relative;
+  z-index: 0;
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transform: scale(1);
+  transform-origin: center;
+}
+
+
+
+animasi_terminal
+
+<!-- From Uiverse.io by 00Kubi --> 
+<div class="container">
+  <div class="terminal_toolbar">
+    <div class="butt">
+      <button class="btn btn-color"></button>
+      <button class="btn"></button>
+      <button class="btn"></button>
+    </div>
+    <p class="user">00Kubi@admin: ~</p>
+    <div class="add_tab">+</div>
+  </div>
+  <div class="terminal_body">
+    <div class="terminal_prompt">
+      <span class="terminal_user">00Kubi@admin:</span>
+      <span class="terminal_location">~</span>
+      <span class="terminal_bling">$</span>
+      <span class="terminal_cursor"></span>
+    </div>
+    <div class="terminal_output">
+      <pre class="output_text">Welcome to Terminal</pre>
+    </div>
+    <div class="terminal_input">
+      <input placeholder="Type a command..." class="input_text" type="text" />
+    </div>
+  </div>
+</div>
+
+
+/* From Uiverse.io by 00Kubi */ 
+.container {
+  width: 400px;
+  height: 300px;
+  background: #1e1e1e;
+  font-family: Menlo, Consolas, monospace;
+  font-size: 14px;
+  color: #e6e6e6;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.terminal_toolbar {
+  display: flex;
+  height: 30px;
+  align-items: center;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border-top-left-radius: 5px;
+  border-top-right-radius: 5px;
+  background: #212121;
+  justify-content: space-between;
+}
+
+.butt {
+  display: flex;
+  align-items: center;
+}
+
+.btn {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0;
+  margin-right: 5px;
+  font-size: 8px;
+  height: 12px;
+  width: 12px;
+  box-sizing: border-box;
+  border: none;
+  border-radius: 100%;
+  background: linear-gradient(#7d7871 0%, #595953 100%);
+  text-shadow: 0px 1px 0px rgba(255, 255, 255, 0.2);
+  box-shadow: 0px 0px 1px 0px #41403a, 0px 1px 1px 0px #474642;
+}
+
+.btn-color {
+  background: #ee411a;
+}
+
+.btn:hover {
+  cursor: pointer;
+}
+
+.btn:focus {
+  outline: none;
+}
+
+.butt--exit {
+  background: linear-gradient(#f37458 0%, #de4c12 100%);
+}
+
+.add_tab {
+  border: 1px solid #fff;
+  color: #fff;
+  padding: 0 6px;
+  border-radius: 4px 4px 0 0;
+  border-bottom: none;
+  cursor: pointer;
+}
+
+.user {
+  color: #d5d0ce;
+  margin-left: 6px;
+  font-size: 14px;
+  line-height: 15px;
+}
+
+.terminal_body {
+  background: rgba(0, 0, 0, 0.6);
+  height: calc(100% - 30px);
+  padding-top: 2px;
+  margin-top: -1px;
+  font-size: 12px;
+  border-bottom-left-radius: 5px;
+  border-bottom-right-radius: 5px;
+  display: flex;
+  flex-direction: column;
+}
+
+.terminal_prompt {
+  display: flex;
+  align-items: center;
+  padding: 4px;
+}
+
+.terminal_prompt span {
+  margin-left: 4px;
+}
+
+.terminal_user {
+  color: #1eff8e;
+}
+
+.terminal_location {
+  color: #4878c0;
+}
+
+.terminal_bling {
+  color: #dddddd;
+}
+
+.terminal_cursor {
+  display: block;
+  height: 14px;
+  width: 5px;
+  margin-left: 10px;
+  animation: curbl 1200ms linear infinite;
+}
+
+.terminal_output {
+  padding: 4px;
+  flex-grow: 1;
+  overflow-y: auto;
+}
+
+.output_text {
+  margin: 0;
+}
+
+.terminal_input {
+  padding: 4px;
+}
+
+.input_text {
+  width: 100%;
+  padding: 6px;
+  background: transparent;
+  border: none;
+  color: #e6e6e6;
+  caret-color: #1eff8e;
+}
+
+@keyframes curbl {
+  0% {
+    background: #ffffff;
+  }
+
+  49% {
+    background: #ffffff;
+  }
+
+  60% {
+    background: transparent;
+  }
+
+  99% {
+    background: transparent;
+  }
+
+  100% {
+    background: #ffffff;
+  }
+}
+
+
+
+animasi component magic bento
+import MagicBento from './MagicBento'
+
+<MagicBento 
+  textAutoHide={true}
+  enableStars
+  enableSpotlight
+  enableBorderGlow={true}
+  enableTilt={false}
+  enableMagnetism={false}
+  clickEffect
+  spotlightRadius={400}
+  particleCount={12}
+  glowColor="132, 0, 255"
+  disableAnimations={false}
+/>
+
+import { useRef, useEffect, useCallback, useState } from 'react';
+import { gsap } from 'gsap';
+import './MagicBento.css';
+
+const DEFAULT_PARTICLE_COUNT = 12;
+const DEFAULT_SPOTLIGHT_RADIUS = 300;
+const DEFAULT_GLOW_COLOR = '132, 0, 255';
+const MOBILE_BREAKPOINT = 768;
+
+const cardData = [
+  {
+    color: '#120F17',
+    title: 'Analytics',
+    description: 'Track user behavior',
+    label: 'Insights'
+  },
+  {
+    color: '#120F17',
+    title: 'Dashboard',
+    description: 'Centralized data view',
+    label: 'Overview'
+  },
+  {
+    color: '#120F17',
+    title: 'Collaboration',
+    description: 'Work together seamlessly',
+    label: 'Teamwork'
+  },
+  {
+    color: '#120F17',
+    title: 'Automation',
+    description: 'Streamline workflows',
+    label: 'Efficiency'
+  },
+  {
+    color: '#120F17',
+    title: 'Integration',
+    description: 'Connect favorite tools',
+    label: 'Connectivity'
+  },
+  {
+    color: '#120F17',
+    title: 'Security',
+    description: 'Enterprise-grade protection',
+    label: 'Protection'
+  }
+];
+
+const createParticleElement = (x, y, color = DEFAULT_GLOW_COLOR) => {
+  const el = document.createElement('div');
+  el.className = 'particle';
+  el.style.cssText = `
+    position: absolute;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: rgba(${color}, 1);
+    box-shadow: 0 0 6px rgba(${color}, 0.6);
+    pointer-events: none;
+    z-index: 100;
+    left: ${x}px;
+    top: ${y}px;
+  `;
+  return el;
+};
+
+const calculateSpotlightValues = radius => ({
+  proximity: radius * 0.5,
+  fadeDistance: radius * 0.75
+});
+
+const updateCardGlowProperties = (card, mouseX, mouseY, glow, radius) => {
+  const rect = card.getBoundingClientRect();
+  const relativeX = ((mouseX - rect.left) / rect.width) * 100;
+  const relativeY = ((mouseY - rect.top) / rect.height) * 100;
+
+  card.style.setProperty('--glow-x', `${relativeX}%`);
+  card.style.setProperty('--glow-y', `${relativeY}%`);
+  card.style.setProperty('--glow-intensity', glow.toString());
+  card.style.setProperty('--glow-radius', `${radius}px`);
+};
+
+const ParticleCard = ({
+  children,
+  className = '',
+  disableAnimations = false,
+  style,
+  particleCount = DEFAULT_PARTICLE_COUNT,
+  glowColor = DEFAULT_GLOW_COLOR,
+  enableTilt = true,
+  clickEffect = false,
+  enableMagnetism = false
+}) => {
+  const cardRef = useRef(null);
+  const particlesRef = useRef([]);
+  const timeoutsRef = useRef([]);
+  const isHoveredRef = useRef(false);
+  const memoizedParticles = useRef([]);
+  const particlesInitialized = useRef(false);
+  const magnetismAnimationRef = useRef(null);
+
+  const initializeParticles = useCallback(() => {
+    if (particlesInitialized.current || !cardRef.current) return;
+
+    const { width, height } = cardRef.current.getBoundingClientRect();
+    memoizedParticles.current = Array.from({ length: particleCount }, () =>
+      createParticleElement(Math.random() * width, Math.random() * height, glowColor)
+    );
+    particlesInitialized.current = true;
+  }, [particleCount, glowColor]);
+
+  const clearAllParticles = useCallback(() => {
+    timeoutsRef.current.forEach(clearTimeout);
+    timeoutsRef.current = [];
+    magnetismAnimationRef.current?.kill();
+
+    particlesRef.current.forEach(particle => {
+      gsap.to(particle, {
+        scale: 0,
+        opacity: 0,
+        duration: 0.3,
+        ease: 'back.in(1.7)',
+        onComplete: () => {
+          particle.parentNode?.removeChild(particle);
+        }
+      });
+    });
+    particlesRef.current = [];
+  }, []);
+
+  const animateParticles = useCallback(() => {
+    if (!cardRef.current || !isHoveredRef.current) return;
+
+    if (!particlesInitialized.current) {
+      initializeParticles();
+    }
+
+    memoizedParticles.current.forEach((particle, index) => {
+      const timeoutId = setTimeout(() => {
+        if (!isHoveredRef.current || !cardRef.current) return;
+
+        const clone = particle.cloneNode(true);
+        cardRef.current.appendChild(clone);
+        particlesRef.current.push(clone);
+
+        gsap.fromTo(clone, { scale: 0, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.3, ease: 'back.out(1.7)' });
+
+        gsap.to(clone, {
+          x: (Math.random() - 0.5) * 100,
+          y: (Math.random() - 0.5) * 100,
+          rotation: Math.random() * 360,
+          duration: 2 + Math.random() * 2,
+          ease: 'none',
+          repeat: -1,
+          yoyo: true
+        });
+
+        gsap.to(clone, {
+          opacity: 0.3,
+          duration: 1.5,
+          ease: 'power2.inOut',
+          repeat: -1,
+          yoyo: true
+        });
+      }, index * 100);
+
+      timeoutsRef.current.push(timeoutId);
+    });
+  }, [initializeParticles]);
+
+  useEffect(() => {
+    if (disableAnimations || !cardRef.current) return;
+
+    const element = cardRef.current;
+
+    const handleMouseEnter = () => {
+      isHoveredRef.current = true;
+      animateParticles();
+
+      if (enableTilt) {
+        gsap.to(element, {
+          rotateX: 5,
+          rotateY: 5,
+          duration: 0.3,
+          ease: 'power2.out',
+          transformPerspective: 1000
+        });
+      }
+    };
+
+    const handleMouseLeave = () => {
+      isHoveredRef.current = false;
+      clearAllParticles();
+
+      if (enableTilt) {
+        gsap.to(element, {
+          rotateX: 0,
+          rotateY: 0,
+          duration: 0.3,
+          ease: 'power2.out'
+        });
+      }
+
+      if (enableMagnetism) {
+        gsap.to(element, {
+          x: 0,
+          y: 0,
+          duration: 0.3,
+          ease: 'power2.out'
+        });
+      }
+    };
+
+    const handleMouseMove = e => {
+      if (!enableTilt && !enableMagnetism) return;
+
+      const rect = element.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
+
+      if (enableTilt) {
+        const rotateX = ((y - centerY) / centerY) * -10;
+        const rotateY = ((x - centerX) / centerX) * 10;
+
+        gsap.to(element, {
+          rotateX,
+          rotateY,
+          duration: 0.1,
+          ease: 'power2.out',
+          transformPerspective: 1000
+        });
+      }
+
+      if (enableMagnetism) {
+        const magnetX = (x - centerX) * 0.05;
+        const magnetY = (y - centerY) * 0.05;
+
+        magnetismAnimationRef.current = gsap.to(element, {
+          x: magnetX,
+          y: magnetY,
+          duration: 0.3,
+          ease: 'power2.out'
+        });
+      }
+    };
+
+    const handleClick = e => {
+      if (!clickEffect) return;
+
+      const rect = element.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      const maxDistance = Math.max(
+        Math.hypot(x, y),
+        Math.hypot(x - rect.width, y),
+        Math.hypot(x, y - rect.height),
+        Math.hypot(x - rect.width, y - rect.height)
+      );
+
+      const ripple = document.createElement('div');
+      ripple.style.cssText = `
+        position: absolute;
+        width: ${maxDistance * 2}px;
+        height: ${maxDistance * 2}px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(${glowColor}, 0.4) 0%, rgba(${glowColor}, 0.2) 30%, transparent 70%);
+        left: ${x - maxDistance}px;
+        top: ${y - maxDistance}px;
+        pointer-events: none;
+        z-index: 1000;
+      `;
+
+      element.appendChild(ripple);
+
+      gsap.fromTo(
+        ripple,
+        {
+          scale: 0,
+          opacity: 1
+        },
+        {
+          scale: 1,
+          opacity: 0,
+          duration: 0.8,
+          ease: 'power2.out',
+          onComplete: () => ripple.remove()
+        }
+      );
+    };
+
+    element.addEventListener('mouseenter', handleMouseEnter);
+    element.addEventListener('mouseleave', handleMouseLeave);
+    element.addEventListener('mousemove', handleMouseMove);
+    element.addEventListener('click', handleClick);
+
+    return () => {
+      isHoveredRef.current = false;
+      element.removeEventListener('mouseenter', handleMouseEnter);
+      element.removeEventListener('mouseleave', handleMouseLeave);
+      element.removeEventListener('mousemove', handleMouseMove);
+      element.removeEventListener('click', handleClick);
+      clearAllParticles();
+    };
+  }, [animateParticles, clearAllParticles, disableAnimations, enableTilt, enableMagnetism, clickEffect, glowColor]);
+
+  return (
+    <div
+      ref={cardRef}
+      className={`${className} particle-container`}
+      style={{ ...style, position: 'relative', overflow: 'hidden' }}
+    >
+      {children}
+    </div>
+  );
+};
+
+const GlobalSpotlight = ({
+  gridRef,
+  disableAnimations = false,
+  enabled = true,
+  spotlightRadius = DEFAULT_SPOTLIGHT_RADIUS,
+  glowColor = DEFAULT_GLOW_COLOR
+}) => {
+  const spotlightRef = useRef(null);
+  const isInsideSection = useRef(false);
+
+  useEffect(() => {
+    if (disableAnimations || !gridRef?.current || !enabled) return;
+
+    const spotlight = document.createElement('div');
+    spotlight.className = 'global-spotlight';
+    spotlight.style.cssText = `
+      position: fixed;
+      width: 800px;
+      height: 800px;
+      border-radius: 50%;
+      pointer-events: none;
+      background: radial-gradient(circle,
+        rgba(${glowColor}, 0.15) 0%,
+        rgba(${glowColor}, 0.08) 15%,
+        rgba(${glowColor}, 0.04) 25%,
+        rgba(${glowColor}, 0.02) 40%,
+        rgba(${glowColor}, 0.01) 65%,
+        transparent 70%
+      );
+      z-index: 200;
+      opacity: 0;
+      transform: translate(-50%, -50%);
+      mix-blend-mode: screen;
+    `;
+    document.body.appendChild(spotlight);
+    spotlightRef.current = spotlight;
+
+    const handleMouseMove = e => {
+      if (!spotlightRef.current || !gridRef.current) return;
+
+      const section = gridRef.current.closest('.bento-section');
+      const rect = section?.getBoundingClientRect();
+      const mouseInside =
+        rect && e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
+
+      isInsideSection.current = mouseInside || false;
+      const cards = gridRef.current.querySelectorAll('.magic-bento-card');
+
+      if (!mouseInside) {
+        gsap.to(spotlightRef.current, {
+          opacity: 0,
+          duration: 0.3,
+          ease: 'power2.out'
+        });
+        cards.forEach(card => {
+          card.style.setProperty('--glow-intensity', '0');
+        });
+        return;
+      }
+
+      const { proximity, fadeDistance } = calculateSpotlightValues(spotlightRadius);
+      let minDistance = Infinity;
+
+      cards.forEach(card => {
+        const cardElement = card;
+        const cardRect = cardElement.getBoundingClientRect();
+        const centerX = cardRect.left + cardRect.width / 2;
+        const centerY = cardRect.top + cardRect.height / 2;
+        const distance =
+          Math.hypot(e.clientX - centerX, e.clientY - centerY) - Math.max(cardRect.width, cardRect.height) / 2;
+        const effectiveDistance = Math.max(0, distance);
+
+        minDistance = Math.min(minDistance, effectiveDistance);
+
+        let glowIntensity = 0;
+        if (effectiveDistance <= proximity) {
+          glowIntensity = 1;
+        } else if (effectiveDistance <= fadeDistance) {
+          glowIntensity = (fadeDistance - effectiveDistance) / (fadeDistance - proximity);
+        }
+
+        updateCardGlowProperties(cardElement, e.clientX, e.clientY, glowIntensity, spotlightRadius);
+      });
+
+      gsap.to(spotlightRef.current, {
+        left: e.clientX,
+        top: e.clientY,
+        duration: 0.1,
+        ease: 'power2.out'
+      });
+
+      const targetOpacity =
+        minDistance <= proximity
+          ? 0.8
+          : minDistance <= fadeDistance
+            ? ((fadeDistance - minDistance) / (fadeDistance - proximity)) * 0.8
+            : 0;
+
+      gsap.to(spotlightRef.current, {
+        opacity: targetOpacity,
+        duration: targetOpacity > 0 ? 0.2 : 0.5,
+        ease: 'power2.out'
+      });
+    };
+
+    const handleMouseLeave = () => {
+      isInsideSection.current = false;
+      gridRef.current?.querySelectorAll('.magic-bento-card').forEach(card => {
+        card.style.setProperty('--glow-intensity', '0');
+      });
+      if (spotlightRef.current) {
+        gsap.to(spotlightRef.current, {
+          opacity: 0,
+          duration: 0.3,
+          ease: 'power2.out'
+        });
+      }
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseleave', handleMouseLeave);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseleave', handleMouseLeave);
+      spotlightRef.current?.parentNode?.removeChild(spotlightRef.current);
+    };
+  }, [gridRef, disableAnimations, enabled, spotlightRadius, glowColor]);
+
+  return null;
+};
+
+const BentoCardGrid = ({ children, gridRef }) => (
+  <div className="card-grid bento-section" ref={gridRef}>
+    {children}
+  </div>
+);
+
+const useMobileDetection = () => {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth <= MOBILE_BREAKPOINT);
+
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  return isMobile;
+};
+
+const MagicBento = ({
+  textAutoHide = true,
+  enableStars = true,
+  enableSpotlight = true,
+  enableBorderGlow = true,
+  disableAnimations = false,
+  spotlightRadius = DEFAULT_SPOTLIGHT_RADIUS,
+  particleCount = DEFAULT_PARTICLE_COUNT,
+  enableTilt = false,
+  glowColor = DEFAULT_GLOW_COLOR,
+  clickEffect = true,
+  enableMagnetism = true
+}) => {
+  const gridRef = useRef(null);
+  const isMobile = useMobileDetection();
+  const shouldDisableAnimations = disableAnimations || isMobile;
+
+  return (
+    <>
+      {enableSpotlight && (
+        <GlobalSpotlight
+          gridRef={gridRef}
+          disableAnimations={shouldDisableAnimations}
+          enabled={enableSpotlight}
+          spotlightRadius={spotlightRadius}
+          glowColor={glowColor}
+        />
+      )}
+
+      <BentoCardGrid gridRef={gridRef}>
+        {cardData.map((card, index) => {
+          const baseClassName = `magic-bento-card ${textAutoHide ? 'magic-bento-card--text-autohide' : ''} ${enableBorderGlow ? 'magic-bento-card--border-glow' : ''}`;
+          const cardProps = {
+            className: baseClassName,
+            style: {
+              backgroundColor: card.color,
+              '--glow-color': glowColor
+            }
+          };
+
+          if (enableStars) {
+            return (
+              <ParticleCard
+                key={index}
+                {...cardProps}
+                disableAnimations={shouldDisableAnimations}
+                particleCount={particleCount}
+                glowColor={glowColor}
+                enableTilt={enableTilt}
+                clickEffect={clickEffect}
+                enableMagnetism={enableMagnetism}
+              >
+                <div className="magic-bento-card__header">
+                  <div className="magic-bento-card__label">{card.label}</div>
+                </div>
+                <div className="magic-bento-card__content">
+                  <h2 className="magic-bento-card__title">{card.title}</h2>
+                  <p className="magic-bento-card__description">{card.description}</p>
+                </div>
+              </ParticleCard>
+            );
+          }
+
+          return (
+            <div
+              key={index}
+              {...cardProps}
+              ref={el => {
+                if (!el) return;
+
+                const handleMouseMove = e => {
+                  if (shouldDisableAnimations) return;
+
+                  const rect = el.getBoundingClientRect();
+                  const x = e.clientX - rect.left;
+                  const y = e.clientY - rect.top;
+                  const centerX = rect.width / 2;
+                  const centerY = rect.height / 2;
+
+                  if (enableTilt) {
+                    const rotateX = ((y - centerY) / centerY) * -10;
+                    const rotateY = ((x - centerX) / centerX) * 10;
+                    gsap.to(el, {
+                      rotateX,
+                      rotateY,
+                      duration: 0.1,
+                      ease: 'power2.out',
+                      transformPerspective: 1000
+                    });
+                  }
+
+                  if (enableMagnetism) {
+                    const magnetX = (x - centerX) * 0.05;
+                    const magnetY = (y - centerY) * 0.05;
+                    gsap.to(el, {
+                      x: magnetX,
+                      y: magnetY,
+                      duration: 0.3,
+                      ease: 'power2.out'
+                    });
+                  }
+                };
+
+                const handleMouseLeave = () => {
+                  if (shouldDisableAnimations) return;
+
+                  if (enableTilt) {
+                    gsap.to(el, {
+                      rotateX: 0,
+                      rotateY: 0,
+                      duration: 0.3,
+                      ease: 'power2.out'
+                    });
+                  }
+
+                  if (enableMagnetism) {
+                    gsap.to(el, {
+                      x: 0,
+                      y: 0,
+                      duration: 0.3,
+                      ease: 'power2.out'
+                    });
+                  }
+                };
+
+                const handleClick = e => {
+                  if (!clickEffect || shouldDisableAnimations) return;
+
+                  const rect = el.getBoundingClientRect();
+                  const x = e.clientX - rect.left;
+                  const y = e.clientY - rect.top;
+
+                  const maxDistance = Math.max(
+                    Math.hypot(x, y),
+                    Math.hypot(x - rect.width, y),
+                    Math.hypot(x, y - rect.height),
+                    Math.hypot(x - rect.width, y - rect.height)
+                  );
+
+                  const ripple = document.createElement('div');
+                  ripple.style.cssText = `
+                    position: absolute;
+                    width: ${maxDistance * 2}px;
+                    height: ${maxDistance * 2}px;
+                    border-radius: 50%;
+                    background: radial-gradient(circle, rgba(${glowColor}, 0.4) 0%, rgba(${glowColor}, 0.2) 30%, transparent 70%);
+                    left: ${x - maxDistance}px;
+                    top: ${y - maxDistance}px;
+                    pointer-events: none;
+                    z-index: 1000;
+                  `;
+
+                  el.appendChild(ripple);
+
+                  gsap.fromTo(
+                    ripple,
+                    {
+                      scale: 0,
+                      opacity: 1
+                    },
+                    {
+                      scale: 1,
+                      opacity: 0,
+                      duration: 0.8,
+                      ease: 'power2.out',
+                      onComplete: () => ripple.remove()
+                    }
+                  );
+                };
+
+                el.addEventListener('mousemove', handleMouseMove);
+                el.addEventListener('mouseleave', handleMouseLeave);
+                el.addEventListener('click', handleClick);
+              }}
+            >
+              <div className="magic-bento-card__header">
+                <div className="magic-bento-card__label">{card.label}</div>
+              </div>
+              <div className="magic-bento-card__content">
+                <h2 className="magic-bento-card__title">{card.title}</h2>
+                <p className="magic-bento-card__description">{card.description}</p>
+              </div>
+            </div>
+          );
+        })}
+      </BentoCardGrid>
+    </>
+  );
+};
+
+export default MagicBento;
+
+
+:root {
+  --hue: 27;
+  --sat: 69%;
+  --white: hsl(0, 0%, 100%);
+  --purple-primary: rgba(132, 0, 255, 1);
+  --purple-glow: rgba(132, 0, 255, 0.2);
+  --purple-border: rgba(132, 0, 255, 0.8);
+  --border-color: #2F293A;
+  --background-dark: #120F17;
+  color-scheme: light dark;
+}
+
+.card-grid {
+  display: grid;
+  gap: 0.5em;
+  padding: 0.75em;
+  max-width: 54em;
+  font-size: clamp(1rem, 0.9rem + 0.5vw, 1.5rem);
+}
+
+.magic-bento-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+  aspect-ratio: 4/3;
+  min-height: 200px;
+  width: 100%;
+  max-width: 100%;
+  padding: 1.25em;
+  border-radius: 20px;
+  border: 1px solid var(--border-color);
+  background: var(--background-dark);
+  font-weight: 300;
+  overflow: hidden;
+  transition: all 0.3s ease;
+
+  --glow-x: 50%;
+  --glow-y: 50%;
+  --glow-intensity: 0;
+  --glow-radius: 200px;
+}
+
+.magic-bento-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+}
+
+.magic-bento-card__header,
+.magic-bento-card__content {
+  display: flex;
+  position: relative;
+  color: var(--white);
+}
+
+.magic-bento-card__header {
+  gap: 0.75em;
+  justify-content: space-between;
+}
+
+.magic-bento-card__content {
+  flex-direction: column;
+}
+
+.magic-bento-card__label {
+  font-size: 16px;
+}
+
+.magic-bento-card__title,
+.magic-bento-card__description {
+  --clamp-title: 1;
+  --clamp-desc: 2;
+}
+
+.magic-bento-card__title {
+  font-weight: 400;
+  font-size: 16px;
+  margin: 0 0 0.25em;
+}
+
+.magic-bento-card__description {
+  font-size: 12px;
+  line-height: 1.2;
+  opacity: 0.9;
+}
+
+.magic-bento-card--text-autohide .magic-bento-card__title,
+.magic-bento-card--text-autohide .magic-bento-card__description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.magic-bento-card--text-autohide .magic-bento-card__title {
+  -webkit-line-clamp: var(--clamp-title);
+  line-clamp: var(--clamp-title);
+}
+
+.magic-bento-card--text-autohide .magic-bento-card__description {
+  -webkit-line-clamp: var(--clamp-desc);
+  line-clamp: var(--clamp-desc);
+}
+
+@media (max-width: 599px) {
+  .card-grid {
+    grid-template-columns: 1fr;
+    width: 90%;
+    margin: 0 auto;
+    padding: 0.5em;
+  }
+
+  .magic-bento-card {
+    width: 100%;
+    min-height: 180px;
+  }
+}
+
+@media (min-width: 600px) {
+  .card-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .card-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .magic-bento-card:nth-child(3) {
+    grid-column: span 2;
+    grid-row: span 2;
+  }
+
+  .magic-bento-card:nth-child(4) {
+    grid-column: 1 / span 2;
+    grid-row: 2 / span 2;
+  }
+
+  .magic-bento-card:nth-child(6) {
+    grid-column: 4;
+    grid-row: 3;
+  }
+}
+
+/* Border glow effect */
+.magic-bento-card--border-glow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 6px;
+  background: radial-gradient(
+    var(--glow-radius) circle at var(--glow-x) var(--glow-y),
+    rgba(132, 0, 255, calc(var(--glow-intensity) * 0.8)) 0%,
+    rgba(132, 0, 255, calc(var(--glow-intensity) * 0.4)) 30%,
+    transparent 60%
+  );
+  border-radius: inherit;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.3s ease;
+  z-index: 1;
+}
+
+.magic-bento-card--border-glow:hover::after {
+  opacity: 1;
+}
+
+.magic-bento-card--border-glow:hover {
+  box-shadow:
+    0 4px 20px rgba(46, 24, 78, 0.4),
+    0 0 30px var(--purple-glow);
+}
+
+.particle-container {
+  position: relative;
+  overflow: hidden;
+}
+
+.particle::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  background: rgba(132, 0, 255, 0.2);
+  border-radius: 50%;
+  z-index: -1;
+}
+
+.particle-container:hover {
+  box-shadow:
+    0 4px 20px rgba(46, 24, 78, 0.2),
+    0 0 30px var(--purple-glow);
+}
+
+/* Global spotlight styles */
+.global-spotlight {
+  mix-blend-mode: screen;
+  will-change: transform, opacity;
+  z-index: 200 !important;
+  pointer-events: none;
+}
+
+.bento-section {
+  position: relative;
+  user-select: none;
+}
+
+menu ketika dibuka dari mode/dimensi android
+
+<!-- From Uiverse.io by ilkhoeri --> 
+<input hidden="" class="mode" id="theme-mode" type="checkbox" />
+<div class="container">
+  <div class="wrap">
+    <input
+      hidden=""
+      class="rd-1"
+      name="radio"
+      id="rd-1"
+      type="radio"
+      checked=""
+    />
+    <label style="--index: 0;" class="label" for="rd-1"
+      ><span>About Me</span></label
+    >
+
+    <input hidden="" class="rd-2" name="radio" id="rd-2" type="radio" />
+    <label style="--index: 1;" class="label" for="rd-2"
+      ><span>Summary</span></label
+    >
+
+    <input hidden="" class="rd-3" name="radio" id="rd-3" type="radio" />
+    <label style="--index: 2;" class="label" for="rd-3"
+      ><span>Portfolio</span></label
+    >
+
+    <div class="bar"></div>
+    <div class="slidebar"></div>
+
+    <label for="theme-mode" class="theme">
+      <span class="light"
+        ><svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          stroke-width="2"
+        >
+          <path
+            d="M14.828 14.828a4 4 0 1 0 -5.656 -5.656a4 4 0 0 0 5.656 5.656z"
+          ></path>
+          <g data-g="high">
+            <path d="M4 12h-3"></path>
+            <path d="M12 4v-3"></path>
+            <path d="M20 12h3"></path>
+            <path d="M12 20v3"></path>
+          </g>
+          <g data-g="low">
+            <path d="M6.343 17.657l-1.414 1.414"></path>
+            <path d="M6.343 6.343l-1.414 -1.414"></path>
+            <path d="M17.657 6.343l1.414 -1.414"></path>
+            <path d="M17.657 17.657l1.414 1.414"></path>
+          </g></svg
+      ></span>
+      <span class="dark"
+        ><svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          stroke-width="0"
+        >
+          <path
+            d="m4.8.69c0-.38-.31-.69-.69-.69s-.69.31-.69.69v1.03h-1.03c-.38,0-.69.31-.69.69s.31.69.69.69h1.03v1.03c0,.38.31.69.69.69s.69-.31.69-.69v-1.03h1.03c.38,0,.69-.31.69-.69s-.31-.69-.69-.69h-1.03V.69Zm5.14,5.14c0-.38-.31-.69-.69-.69s-.69.31-.69.69v1.03h-1.03c-.38,0-.69.31-.69.69s.31.69.69.69h1.03v1.03c0,.38.31.69.69.69s.69-.31.69-.69v-1.03h1.03c.38,0,.69-.31.69-.69s-.31-.69-.69-.69h-1.03v-1.03Zm-6.86,5.14c0-.38-.31-.69-.69-.69s-.69.31-.69.69v1.03H.69c-.38,0-.69.31-.69.69s.31.69.69.69h1.03v1.03c0,.38.31.69.69.69s.69-.31.69-.69v-1.03h1.03c.38,0,.69-.31.69-.69s-.31-.69-.69-.69h-1.03v-1.03ZM14.47,1.51l-.51-.07c-.37-.04-.58.38-.37.69.24.35.46.71.67,1.08.86,1.59,1.35,3.42,1.35,5.36,0,5.61-4.08,10.26-9.43,11.16-.41.07-.84.12-1.27.14-.37.02-.57.45-.31.71.12.12.24.24.36.35l.12.11.45.39.32.25.21.15.32.22.3.2c.21.13.42.25.64.37l.45.23.45.2.52.21.42.15c.23.08.46.14.7.21.18.05.36.09.54.13.22.04.43.08.65.12l.54.07.46.04c.22.01.44.02.66.02,6.25,0,11.31-5.07,11.31-11.31,0-.43-.02-.85-.07-1.27l-.06-.48c-.06-.38-.14-.76-.23-1.13-.12-.44-.26-.88-.43-1.3l-.19-.46-.13-.28-.13-.26c-.27-.53-.58-1.03-.93-1.51l-.26-.34-.34-.41-.28-.31-.2-.21-.28-.27-.38-.34-.55-.45-.42-.3-.5-.33-.55-.32-.56-.28-.19-.09-.41-.17-.47-.18-.43-.14-.56-.15-.45-.1-.5-.09Zm3.19,7.4c0-1.76-.35-3.43-.98-4.96,3.31,1.52,5.61,4.86,5.61,8.73,0,5.3-4.3,9.6-9.6,9.6-1.49,0-2.89-.34-4.15-.94,2.5-.79,4.67-2.3,6.27-4.3.23.32.61.53,1.04.53.71,0,1.29-.58,1.29-1.29,0-.61-.43-1.12-1-1.25.11-.2.21-.4.3-.61.33.2.71.32,1.13.32,1.18,0,2.14-.96,2.14-2.14s-.96-2.14-2.14-2.14c.06-.51.09-1.02.09-1.54Z"
+            fill="currentColor"
+            clip-rule="evenodd"
+            fill-rule="evenodd"
+          ></path></svg
+      ></span>
+    </label>
+  </div>
+</div>
+
+
+/* From Uiverse.io by ilkhoeri */ 
+/* theme-mode-style */
+.mode + .container {
+  --color-pure: #000;
+  --color-primary: #e8e8e8;
+  --color-secondary: #212121;
+  --muted: #b8b8b8;
+}
+.mode:checked + .container {
+  --color-pure: #fff;
+  --color-primary: #212121;
+  --color-secondary: #fff;
+  --muted: #383838;
+}
+.container {
+  background-color: var(--color-secondary);
+  position: absolute;
+  width: 100%;
+  height: 110%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+}
+.container .theme {
+  color: var(--color-secondary);
+  background-color: var(--color-primary);
+  position: relative;
+  cursor: pointer;
+  z-index: 9;
+  -webkit-user-select: none;
+  user-select: none;
+  border: 1px solid var(--muted);
+  border-radius: calc(var(--round) - var(--p-y));
+  margin-left: calc(var(--p-x) * 2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  transition: background-color 0.25s linear;
+}
+.container .theme:hover {
+  background-color: var(--muted);
+}
+.container .theme::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--p-x) * -1);
+  width: 1px;
+  height: 100%;
+  background-color: var(--muted);
+}
+.container .theme span {
+  border: none;
+  outline: none;
+  background-color: transparent;
+  padding: 0.125rem;
+  border-radius: 9999px;
+  align-items: center;
+  justify-content: center;
+}
+.mode:checked + .container .theme span.light,
+.mode + .container .theme span.dark {
+  display: none;
+}
+.mode + .container .theme span.light,
+.mode:checked + .container .theme span.dark {
+  display: flex;
+}
+.container .theme svg {
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  stroke: currentColor;
+  fill: none;
+  height: 22px;
+  width: 22px;
+}
+
+/* main style */
+.wrap {
+  --round: 10px;
+  --p-x: 8px;
+  --p-y: 4px;
+  --w-label: 100px;
+  display: flex;
+  align-items: center;
+  padding: var(--p-y) var(--p-x);
+  position: relative;
+  background: var(--color-primary);
+  border-radius: var(--round);
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  top: 0;
+  z-index: 1;
+}
+
+.wrap input {
+  height: 0;
+  width: 0;
+  position: absolute;
+  overflow: hidden;
+  display: none;
+  visibility: hidden;
+}
+
+.label {
+  cursor: pointer;
+  outline: none;
+  font-size: 0.875rem;
+  letter-spacing: initial;
+  font-weight: 500;
+  color: var(--color-secondary);
+  background: transparent;
+  padding: 12px 16px;
+  width: var(--w-label);
+  min-width: var(--w-label);
+  text-decoration: none;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: color 0.25s ease;
+  outline-offset: -6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 2;
+  -webkit-tap-highlight-color: transparent;
+}
+.label span {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+.wrap input[class*="rd-"]:checked + label {
+  color: var(--color-pure);
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  position: absolute;
+  transform-origin: 0 0 0;
+  height: 100%;
+  width: var(--w-label);
+  z-index: 0;
+  transition: transform 0.5s cubic-bezier(0.33, 0.83, 0.99, 0.98);
+}
+.bar::before,
+.bar::after {
+  content: "";
+  position: absolute;
+  height: 4px;
+  width: 100%;
+  background: var(--color-secondary);
+}
+.bar::before {
+  top: 0;
+  border-radius: 0 0 9999px 9999px;
+}
+.bar::after {
+  bottom: 0;
+  border-radius: 9999px 9999px 0 0;
+}
+
+.slidebar {
+  position: absolute;
+  height: calc(100% - (var(--p-y) * 4));
+  width: var(--w-label);
+  border-radius: calc(var(--round) - var(--p-y));
+  background: var(--muted);
+  transform-origin: 0 0 0;
+  z-index: 0;
+  transition: transform 0.5s cubic-bezier(0.33, 0.83, 0.99, 0.98);
+}
+
+.rd-1:checked ~ .bar,
+.rd-1:checked ~ .slidebar,
+.rd-1 + label:hover ~ .slidebar {
+  transform: translateX(0) scaleX(1);
+}
+.rd-2:checked ~ .bar,
+.rd-2:checked ~ .slidebar,
+.rd-2 + label:hover ~ .slidebar {
+  transform: translateX(100%) scaleX(1);
+}
+.rd-3:checked ~ .bar,
+.rd-3:checked ~ .slidebar,
+.rd-3 + label:hover ~ .slidebar {
+  transform: translateX(200%) scaleX(1);
+}
+
+
+
+menu/navigasi untuk tampilan desktop
+
+import PillNav from './PillNav';
+import logo from '/path/to/logo.svg';
+
+<PillNav
+  logo={logo}
+  logoAlt="Company Logo"
+  items={[
+    { label: 'Home', href: '/' },
+    { label: 'About', href: '/about' },
+    { label: 'Services', href: '/services' },
+    { label: 'Contact', href: '/contact' }
+  ]}
+  activeHref="/"
+  className="custom-nav"
+  ease="power2.easeOut"
+  baseColor="#000000"
+  pillColor="#ffffff"
+  hoveredPillTextColor="#ffffff"
+  pillTextColor="#000000"
+  theme="light"
+  initialLoadAnimation={false}
+/>
+
+import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { gsap } from 'gsap';
+import './PillNav.css';
+
+const PillNav = ({
+  logo,
+  logoAlt = 'Logo',
+  items,
+  activeHref,
+  className = '',
+  ease = 'power3.easeOut',
+  baseColor = '#fff',
+  pillColor = '#120F17',
+  hoveredPillTextColor = '#120F17',
+  pillTextColor,
+  onMobileMenuClick,
+  initialLoadAnimation = true
+}) => {
+  const resolvedPillTextColor = pillTextColor ?? baseColor;
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const circleRefs = useRef([]);
+  const tlRefs = useRef([]);
+  const activeTweenRefs = useRef([]);
+  const logoImgRef = useRef(null);
+  const logoTweenRef = useRef(null);
+  const hamburgerRef = useRef(null);
+  const mobileMenuRef = useRef(null);
+  const navItemsRef = useRef(null);
+  const logoRef = useRef(null);
+
+  useEffect(() => {
+    const layout = () => {
+      circleRefs.current.forEach(circle => {
+        if (!circle?.parentElement) return;
+
+        const pill = circle.parentElement;
+        const rect = pill.getBoundingClientRect();
+        const { width: w, height: h } = rect;
+        const R = ((w * w) / 4 + h * h) / (2 * h);
+        const D = Math.ceil(2 * R) + 2;
+        const delta = Math.ceil(R - Math.sqrt(Math.max(0, R * R - (w * w) / 4))) + 1;
+        const originY = D - delta;
+
+        circle.style.width = `${D}px`;
+        circle.style.height = `${D}px`;
+        circle.style.bottom = `-${delta}px`;
+
+        gsap.set(circle, {
+          xPercent: -50,
+          scale: 0,
+          transformOrigin: `50% ${originY}px`
+        });
+
+        const label = pill.querySelector('.pill-label');
+        const white = pill.querySelector('.pill-label-hover');
+
+        if (label) gsap.set(label, { y: 0 });
+        if (white) gsap.set(white, { y: h + 12, opacity: 0 });
+
+        const index = circleRefs.current.indexOf(circle);
+        if (index === -1) return;
+
+        tlRefs.current[index]?.kill();
+        const tl = gsap.timeline({ paused: true });
+
+        tl.to(circle, { scale: 1.2, xPercent: -50, duration: 2, ease, overwrite: 'auto' }, 0);
+
+        if (label) {
+          tl.to(label, { y: -(h + 8), duration: 2, ease, overwrite: 'auto' }, 0);
+        }
+
+        if (white) {
+          gsap.set(white, { y: Math.ceil(h + 100), opacity: 0 });
+          tl.to(white, { y: 0, opacity: 1, duration: 2, ease, overwrite: 'auto' }, 0);
+        }
+
+        tlRefs.current[index] = tl;
+      });
+    };
+
+    layout();
+
+    const onResize = () => layout();
+    window.addEventListener('resize', onResize);
+
+    if (document.fonts?.ready) {
+      document.fonts.ready.then(layout).catch(() => {});
+    }
+
+    const menu = mobileMenuRef.current;
+    if (menu) {
+      gsap.set(menu, { visibility: 'hidden', opacity: 0, scaleY: 1 });
+    }
+
+    if (initialLoadAnimation) {
+      const logo = logoRef.current;
+      const navItems = navItemsRef.current;
+
+      if (logo) {
+        gsap.set(logo, { scale: 0 });
+        gsap.to(logo, {
+          scale: 1,
+          duration: 0.6,
+          ease
+        });
+      }
+
+      if (navItems) {
+        gsap.set(navItems, { width: 0, overflow: 'hidden' });
+        gsap.to(navItems, {
+          width: 'auto',
+          duration: 0.6,
+          ease
+        });
+      }
+    }
+
+    return () => window.removeEventListener('resize', onResize);
+  }, [items, ease, initialLoadAnimation]);
+
+  const handleEnter = i => {
+    const tl = tlRefs.current[i];
+    if (!tl) return;
+    activeTweenRefs.current[i]?.kill();
+    activeTweenRefs.current[i] = tl.tweenTo(tl.duration(), {
+      duration: 0.3,
+      ease,
+      overwrite: 'auto'
+    });
+  };
+
+  const handleLeave = i => {
+    const tl = tlRefs.current[i];
+    if (!tl) return;
+    activeTweenRefs.current[i]?.kill();
+    activeTweenRefs.current[i] = tl.tweenTo(0, {
+      duration: 0.2,
+      ease,
+      overwrite: 'auto'
+    });
+  };
+
+  const handleLogoEnter = () => {
+    const img = logoImgRef.current;
+    if (!img) return;
+    logoTweenRef.current?.kill();
+    gsap.set(img, { rotate: 0 });
+    logoTweenRef.current = gsap.to(img, {
+      rotate: 360,
+      duration: 0.2,
+      ease,
+      overwrite: 'auto'
+    });
+  };
+
+  const toggleMobileMenu = () => {
+    const newState = !isMobileMenuOpen;
+    setIsMobileMenuOpen(newState);
+
+    const hamburger = hamburgerRef.current;
+    const menu = mobileMenuRef.current;
+
+    if (hamburger) {
+      const lines = hamburger.querySelectorAll('.hamburger-line');
+      if (newState) {
+        gsap.to(lines[0], { rotation: 45, y: 3, duration: 0.3, ease });
+        gsap.to(lines[1], { rotation: -45, y: -3, duration: 0.3, ease });
+      } else {
+        gsap.to(lines[0], { rotation: 0, y: 0, duration: 0.3, ease });
+        gsap.to(lines[1], { rotation: 0, y: 0, duration: 0.3, ease });
+      }
+    }
+
+    if (menu) {
+      if (newState) {
+        gsap.set(menu, { visibility: 'visible' });
+        gsap.fromTo(
+          menu,
+          { opacity: 0, y: 10, scaleY: 1 },
+          {
+            opacity: 1,
+            y: 0,
+            scaleY: 1,
+            duration: 0.3,
+            ease,
+            transformOrigin: 'top center'
+          }
+        );
+      } else {
+        gsap.to(menu, {
+          opacity: 0,
+          y: 10,
+          scaleY: 1,
+          duration: 0.2,
+          ease,
+          transformOrigin: 'top center',
+          onComplete: () => {
+            gsap.set(menu, { visibility: 'hidden' });
+          }
+        });
+      }
+    }
+
+    onMobileMenuClick?.();
+  };
+
+  const isExternalLink = href =>
+    href.startsWith('http://') ||
+    href.startsWith('https://') ||
+    href.startsWith('//') ||
+    href.startsWith('mailto:') ||
+    href.startsWith('tel:') ||
+    href.startsWith('#');
+
+  const isRouterLink = href => href && !isExternalLink(href);
+
+  const cssVars = {
+    ['--base']: baseColor,
+    ['--pill-bg']: pillColor,
+    ['--hover-text']: hoveredPillTextColor,
+    ['--pill-text']: resolvedPillTextColor
+  };
+
+  return (
+    <div className="pill-nav-container">
+      <nav className={`pill-nav ${className}`} aria-label="Primary" style={cssVars}>
+        {isRouterLink(items?.[0]?.href) ? (
+          <Link
+            className="pill-logo"
+            to={items[0].href}
+            aria-label="Home"
+            onMouseEnter={handleLogoEnter}
+            role="menuitem"
+            ref={el => {
+              logoRef.current = el;
+            }}
+          >
+            <img src={logo} alt={logoAlt} ref={logoImgRef} />
+          </Link>
+        ) : (
+          <a
+            className="pill-logo"
+            href={items?.[0]?.href || '#'}
+            aria-label="Home"
+            onMouseEnter={handleLogoEnter}
+            ref={el => {
+              logoRef.current = el;
+            }}
+          >
+            <img src={logo} alt={logoAlt} ref={logoImgRef} />
+          </a>
+        )}
+
+        <div className="pill-nav-items desktop-only" ref={navItemsRef}>
+          <ul className="pill-list" role="menubar">
+            {items.map((item, i) => (
+              <li key={item.href || `item-${i}`} role="none">
+                {isRouterLink(item.href) ? (
+                  <Link
+                    role="menuitem"
+                    to={item.href}
+                    className={`pill${activeHref === item.href ? ' is-active' : ''}`}
+                    aria-label={item.ariaLabel || item.label}
+                    onMouseEnter={() => handleEnter(i)}
+                    onMouseLeave={() => handleLeave(i)}
+                  >
+                    <span
+                      className="hover-circle"
+                      aria-hidden="true"
+                      ref={el => {
+                        circleRefs.current[i] = el;
+                      }}
+                    />
+                    <span className="label-stack">
+                      <span className="pill-label">{item.label}</span>
+                      <span className="pill-label-hover" aria-hidden="true">
+                        {item.label}
+                      </span>
+                    </span>
+                  </Link>
+                ) : (
+                  <a
+                    role="menuitem"
+                    href={item.href}
+                    className={`pill${activeHref === item.href ? ' is-active' : ''}`}
+                    aria-label={item.ariaLabel || item.label}
+                    onMouseEnter={() => handleEnter(i)}
+                    onMouseLeave={() => handleLeave(i)}
+                  >
+                    <span
+                      className="hover-circle"
+                      aria-hidden="true"
+                      ref={el => {
+                        circleRefs.current[i] = el;
+                      }}
+                    />
+                    <span className="label-stack">
+                      <span className="pill-label">{item.label}</span>
+                      <span className="pill-label-hover" aria-hidden="true">
+                        {item.label}
+                      </span>
+                    </span>
+                  </a>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <button
+          className="mobile-menu-button mobile-only"
+          onClick={toggleMobileMenu}
+          aria-label="Toggle menu"
+          ref={hamburgerRef}
+        >
+          <span className="hamburger-line" />
+          <span className="hamburger-line" />
+        </button>
+      </nav>
+
+      <div className="mobile-menu-popover mobile-only" ref={mobileMenuRef} style={cssVars}>
+        <ul className="mobile-menu-list">
+          {items.map((item, i) => (
+            <li key={item.href || `mobile-item-${i}`}>
+              {isRouterLink(item.href) ? (
+                <Link
+                  to={item.href}
+                  className={`mobile-menu-link${activeHref === item.href ? ' is-active' : ''}`}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  {item.label}
+                </Link>
+              ) : (
+                <a
+                  href={item.href}
+                  className={`mobile-menu-link${activeHref === item.href ? ' is-active' : ''}`}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  {item.label}
+                </a>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+};
+
+export default PillNav;
+
+.pill-nav-container {
+  position: absolute;
+  top: 1em;
+  z-index: 99;
+}
+
+@media (max-width: 768px) {
+  .pill-nav-container {
+    width: 100%;
+    left: 0;
+  }
+}
+
+.pill-nav {
+  --nav-h: 42px;
+  --logo: 36px;
+  --pill-pad-x: 18px;
+  --pill-gap: 3px;
+  width: max-content;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+@media (max-width: 768px) {
+  .pill-nav {
+    width: 100%;
+    justify-content: space-between;
+    padding: 0 1rem;
+    background: transparent;
+  }
+}
+
+.pill-nav-items {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: var(--nav-h);
+  background: var(--base, #000);
+  border-radius: 9999px;
+}
+
+.pill-logo {
+  width: var(--nav-h);
+  height: var(--nav-h);
+  border-radius: 50%;
+  background: var(--base, #000);
+  padding: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.pill-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.pill-list {
+  list-style: none;
+  display: flex;
+  align-items: stretch;
+  gap: var(--pill-gap);
+  margin: 0;
+  padding: 3px;
+  height: 100%;
+}
+
+.pill-list > li {
+  display: flex;
+  height: 100%;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 0 var(--pill-pad-x);
+  background: var(--pill-bg, #fff);
+  color: var(--pill-text, var(--base, #000));
+  text-decoration: none;
+  border-radius: 9999px;
+  box-sizing: border-box;
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+.pill .hover-circle {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  border-radius: 50%;
+  background: var(--base, #000);
+  z-index: 1;
+  display: block;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.pill .label-stack {
+  position: relative;
+  display: inline-block;
+  line-height: 1;
+  z-index: 2;
+}
+
+.pill .pill-label {
+  position: relative;
+  z-index: 2;
+  display: inline-block;
+  line-height: 1;
+  will-change: transform;
+}
+
+.pill .pill-label-hover {
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--hover-text, #fff);
+  z-index: 3;
+  display: inline-block;
+  will-change: transform, opacity;
+}
+
+.pill.is-active::after {
+  content: '';
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 12px;
+  height: 12px;
+  background: var(--base, #000);
+  border-radius: 50px;
+  z-index: 4;
+}
+
+.desktop-only {
+  display: block;
+}
+
+.mobile-only {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .desktop-only {
+    display: none;
+  }
+
+  .mobile-only {
+    display: block;
+  }
+}
+
+.mobile-menu-button {
+  width: var(--nav-h);
+  height: var(--nav-h);
+  border-radius: 50%;
+  background: var(--base, #000);
+  border: none;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  cursor: pointer;
+  padding: 0;
+  position: relative;
+}
+
+@media (max-width: 768px) {
+  .mobile-menu-button {
+    display: flex;
+  }
+}
+
+.hamburger-line {
+  width: 16px;
+  height: 2px;
+  background: var(--pill-bg, #fff);
+  border-radius: 1px;
+  transition: all 0.01s ease;
+  transform-origin: center;
+}
+
+.mobile-menu-popover {
+  position: absolute;
+  top: 3em;
+  left: 1rem;
+  right: 1rem;
+  background: var(--base, #f0f0f0);
+  border-radius: 27px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  z-index: 998;
+  opacity: 0;
+  transform-origin: top center;
+  visibility: hidden;
+}
+
+.mobile-menu-list {
+  list-style: none;
+  margin: 0;
+  padding: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mobile-menu-popover .mobile-menu-link {
+  display: block;
+  padding: 12px 16px;
+  color: var(--pill-text, #fff);
+  background-color: var(--pill-bg, #fff);
+  text-decoration: none;
+  font-size: 16px;
+  font-weight: 500;
+  border-radius: 50px;
+  transition: all 0.2s ease;
+}
+
+.mobile-menu-popover .mobile-menu-link:hover {
+  cursor: pointer;
+  background-color: var(--base);
+  color: var(--hover-text, #fff);
+}
+
+
+
+animasi cardswap untuk featured project
+
+import CardSwap, { Card } from './CardSwap'
+
+<div style={{ height: '600px', position: 'relative' }}>
+  <CardSwap
+    cardDistance={60}
+    verticalDistance={70}
+    delay={5000}
+    pauseOnHover={false}
+  >
+    <Card>
+      <h3>Card 1</h3>
+      <p>Your content here</p>
+    </Card>
+    <Card>
+      <h3>Card 2</h3>
+      <p>Your content here</p>
+    </Card>
+    <Card>
+      <h3>Card 3</h3>
+      <p>Your content here</p>
+    </Card>
+  </CardSwap>
+</div>
+
+import React, { Children, cloneElement, forwardRef, isValidElement, useEffect, useMemo, useRef } from 'react';
+import gsap from 'gsap';
+import './CardSwap.css';
+
+export const Card = forwardRef(({ customClass, ...rest }, ref) => (
+  <div ref={ref} {...rest} className={`card ${customClass ?? ''} ${rest.className ?? ''}`.trim()} />
+));
+Card.displayName = 'Card';
+
+const makeSlot = (i, distX, distY, total) => ({
+  x: i * distX,
+  y: -i * distY,
+  z: -i * distX * 1.5,
+  zIndex: total - i
+});
+const placeNow = (el, slot, skew) =>
+  gsap.set(el, {
+    x: slot.x,
+    y: slot.y,
+    z: slot.z,
+    xPercent: -50,
+    yPercent: -50,
+    skewY: skew,
+    transformOrigin: 'center center',
+    zIndex: slot.zIndex,
+    force3D: true
+  });
+
+const CardSwap = ({
+  width = 500,
+  height = 400,
+  cardDistance = 60,
+  verticalDistance = 70,
+  delay = 5000,
+  pauseOnHover = false,
+  onCardClick,
+  skewAmount = 6,
+  easing = 'elastic',
+  children
+}) => {
+  const config =
+    easing === 'elastic'
+      ? {
+          ease: 'elastic.out(0.6,0.9)',
+          durDrop: 2,
+          durMove: 2,
+          durReturn: 2,
+          promoteOverlap: 0.9,
+          returnDelay: 0.05
+        }
+      : {
+          ease: 'power1.inOut',
+          durDrop: 0.8,
+          durMove: 0.8,
+          durReturn: 0.8,
+          promoteOverlap: 0.45,
+          returnDelay: 0.2
+        };
+
+  const childArr = useMemo(() => Children.toArray(children), [children]);
+  const refs = useMemo(
+    () => childArr.map(() => React.createRef()),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [childArr.length]
+  );
+
+  const order = useRef(Array.from({ length: childArr.length }, (_, i) => i));
+
+  const tlRef = useRef(null);
+  const intervalRef = useRef();
+  const container = useRef(null);
+
+  useEffect(() => {
+    const total = refs.length;
+    refs.forEach((r, i) => placeNow(r.current, makeSlot(i, cardDistance, verticalDistance, total), skewAmount));
+
+    const swap = () => {
+      if (order.current.length < 2) return;
+
+      const [front, ...rest] = order.current;
+      const elFront = refs[front].current;
+      const tl = gsap.timeline();
+      tlRef.current = tl;
+
+      tl.to(elFront, {
+        y: '+=500',
+        duration: config.durDrop,
+        ease: config.ease
+      });
+
+      tl.addLabel('promote', `-=${config.durDrop * config.promoteOverlap}`);
+      rest.forEach((idx, i) => {
+        const el = refs[idx].current;
+        const slot = makeSlot(i, cardDistance, verticalDistance, refs.length);
+        tl.set(el, { zIndex: slot.zIndex }, 'promote');
+        tl.to(
+          el,
+          {
+            x: slot.x,
+            y: slot.y,
+            z: slot.z,
+            duration: config.durMove,
+            ease: config.ease
+          },
+          `promote+=${i * 0.15}`
+        );
+      });
+
+      const backSlot = makeSlot(refs.length - 1, cardDistance, verticalDistance, refs.length);
+      tl.addLabel('return', `promote+=${config.durMove * config.returnDelay}`);
+      tl.call(
+        () => {
+          gsap.set(elFront, { zIndex: backSlot.zIndex });
+        },
+        undefined,
+        'return'
+      );
+      tl.to(
+        elFront,
+        {
+          x: backSlot.x,
+          y: backSlot.y,
+          z: backSlot.z,
+          duration: config.durReturn,
+          ease: config.ease
+        },
+        'return'
+      );
+
+      tl.call(() => {
+        order.current = [...rest, front];
+      });
+    };
+
+    swap();
+    intervalRef.current = window.setInterval(swap, delay);
+
+    if (pauseOnHover) {
+      const node = container.current;
+      const pause = () => {
+        tlRef.current?.pause();
+        clearInterval(intervalRef.current);
+      };
+      const resume = () => {
+        tlRef.current?.play();
+        intervalRef.current = window.setInterval(swap, delay);
+      };
+      node.addEventListener('mouseenter', pause);
+      node.addEventListener('mouseleave', resume);
+      return () => {
+        node.removeEventListener('mouseenter', pause);
+        node.removeEventListener('mouseleave', resume);
+        clearInterval(intervalRef.current);
+      };
+    }
+    return () => clearInterval(intervalRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardDistance, verticalDistance, delay, pauseOnHover, skewAmount, easing]);
+
+  const rendered = childArr.map((child, i) =>
+    isValidElement(child)
+      ? cloneElement(child, {
+          key: i,
+          ref: refs[i],
+          style: { width, height, ...(child.props.style ?? {}) },
+          onClick: e => {
+            child.props.onClick?.(e);
+            onCardClick?.(i);
+          }
+        })
+      : child
+  );
+
+  return (
+    <div ref={container} className="card-swap-container" style={{ width, height }}>
+      {rendered}
+    </div>
+  );
+};
+
+export default CardSwap;
+
+
+.card-swap-container {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  transform: translate(5%, 20%);
+  transform-origin: bottom right;
+
+  perspective: 900px;
+  overflow: visible;
+}
+
+.card {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 12px;
+  border: 1px solid #fff;
+  background: #000;
+
+  transform-style: preserve-3d;
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+@media (max-width: 768px) {
+  .card-swap-container {
+    transform: scale(0.75) translate(25%, 25%);
+  }
+}
+
+@media (max-width: 480px) {
+  .card-swap-container {
+    transform: scale(0.55) translate(25%, 25%);
+  }
+}
+
+
