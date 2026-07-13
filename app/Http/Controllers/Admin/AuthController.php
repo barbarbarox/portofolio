@@ -48,17 +48,18 @@ class AuthController extends Controller
         $user = User::where('email', $googleUser->getEmail())->first();
 
         if (!$user) {
-            $user = User::create([
-                'name'     => $googleUser->getName(),
-                'email'    => $googleUser->getEmail(),
-                'password' => bcrypt(\Illuminate\Support\Str::random(32)),
-                'is_admin' => true,
-            ]);
-        }
-
-        if (!$user->is_admin) {
-            return redirect()->route('admin.login')
-                ->with('error', '🚫 Akses ditolak. Akun ini bukan admin.');
+            $user = new User();
+            $user->name = $googleUser->getName();
+            $user->email = $googleUser->getEmail();
+            $user->password = bcrypt(\Illuminate\Support\Str::random(32));
+            $user->is_admin = true;
+            $user->save();
+        } else {
+            // Ensure the allowed email is always an admin
+            if (!$user->is_admin) {
+                $user->is_admin = true;
+                $user->save();
+            }
         }
 
         Auth::login($user, true);
