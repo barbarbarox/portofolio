@@ -20,7 +20,7 @@
             "dest": "/public/images/$1"
         },
         {
-            "src": "/(.*\\.js|.*\\.css|.*\\.png|.*\\.jpg|.*\\.svg|.*\\.ico|.*\\.woff2?)",
+            "src": "/(.*\\.js|.*\\.css|.*\\.png|.*\\.jpg|.*\\.svg|.*\\.ico|.*\\.woff2?|.*\\.glb|.*\\.gltf|.*\\.hdr)",
             "dest": "/public/$1"
         },
         {
