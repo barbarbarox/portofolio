@@ -9,15 +9,26 @@ putenv('SESSION_DRIVER=cookie');
 putenv('QUEUE_CONNECTION=sync');
 putenv('LOG_CHANNEL=stderr');
 putenv('VIEW_COMPILED_PATH=/tmp/storage/framework/views');
+putenv('APP_PACKAGES_CACHE=/tmp/storage/bootstrap/cache/packages.php');
+putenv('APP_SERVICES_CACHE=/tmp/storage/bootstrap/cache/services.php');
 
 $_ENV['CACHE_STORE'] = 'array';
 $_ENV['SESSION_DRIVER'] = 'cookie';
 $_ENV['LOG_CHANNEL'] = 'stderr';
 $_ENV['VIEW_COMPILED_PATH'] = '/tmp/storage/framework/views';
+$_ENV['APP_PACKAGES_CACHE'] = '/tmp/storage/bootstrap/cache/packages.php';
+$_ENV['APP_SERVICES_CACHE'] = '/tmp/storage/bootstrap/cache/services.php';
 
-// 2. Create the temporary view directory
-if (!is_dir('/tmp/storage/framework/views')) {
-    mkdir('/tmp/storage/framework/views', 0777, true);
+// 2. Create the temporary directories
+$dirs = [
+    '/tmp/storage/framework/views',
+    '/tmp/storage/bootstrap/cache',
+];
+
+foreach ($dirs as $dir) {
+    if (!is_dir($dir)) {
+        mkdir($dir, 0777, true);
+    }
 }
 
 // 3. Boot Laravel and catch any hidden startup exceptions
