@@ -170,11 +170,11 @@
         <a href="#contact" class="btn-outline">
           <i class="fas fa-paper-plane"></i> Hubungi Saya
         </a>
-        @if(!empty($settings['social_github']))
-        <a href="{{ $settings['social_github'] }}" target="_blank" rel="noopener" class="btn-outline" style="padding:0.875rem 1rem;">
-          <i class="fab fa-github"></i>
+        @foreach($socials->take(3) as $social)
+        <a href="{{ $social->url }}" target="_blank" rel="noopener" class="btn-outline" style="padding:0.875rem 1rem;" title="{{ $social->label }}">
+          <i class="{{ \App\Helpers\SocialIconHelper::fontAwesomeClass($social->platform) }}"></i>
         </a>
-        @endif
+        @endforeach
       </div>
 
       <div class="hero-stats">
@@ -288,11 +288,11 @@
         <p>Selain coding, saya aktif dalam kegiatan CTF (Capture The Flag), penetration testing, dan selalu mengikuti perkembangan terbaru di dunia cybersecurity. Saya percaya bahwa keamanan bukan tambahan, melainkan fondasi dari setiap sistem yang baik.</p>
 
         <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:1.25rem;">
-          @if(!empty($settings['social_github']))
-          <a href="{{ $settings['social_github'] }}" target="_blank" rel="noopener" class="btn-outline" style="padding:0.625rem 1.25rem;font-size:0.875rem;">
-            <i class="fab fa-github"></i> GitHub
+          @foreach($socials->take(2) as $social)
+          <a href="{{ $social->url }}" target="_blank" rel="noopener" class="btn-outline" style="padding:0.625rem 1.25rem;font-size:0.875rem;">
+            <i class="{{ \App\Helpers\SocialIconHelper::fontAwesomeClass($social->platform) }}"></i> {{ $social->label }}
           </a>
-          @endif
+          @endforeach
           <a href="#contact" class="btn-primary" style="padding:0.625rem 1.25rem;font-size:0.875rem;">
             <i class="fas fa-envelope"></i> Let's Talk
           </a>
@@ -301,7 +301,7 @@
     </div>
 
     {{-- Terminal Box --}}
-    <div style="margin-top:4rem;" class="reveal reveal-delay-2">
+    <div style="margin-top:4rem;position:relative;z-index:10;" class="reveal reveal-delay-2">
       <div class="terminal-box">
         <div class="terminal-toolbar">
           <div class="terminal-dots">
@@ -335,95 +335,113 @@
             <span class="terminal-prompt">:</span>
             <span class="terminal-path">~</span>
             <span class="terminal-prompt">$</span>
-            <span style="color:#e6e6e6;margin-left:6px;">echo $STATUS</span>
-          </div>
-          <div class="terminal-output" style="color:#1eff8e;">Available for hire — Open to collaboration</div>
-          <div class="terminal-line">
-            <span class="terminal-user">abarox@portfolio</span>
-            <span class="terminal-prompt">:</span>
-            <span class="terminal-path">~</span>
-            <span class="terminal-prompt">$</span>
             <span class="terminal-cursor-span"></span>
           </div>
         </div>
       </div>
     </div>
 
-    {{-- MagicBento Grid --}}
+    {{-- SVG Filters for spin animation --}}
+    <svg style="position:absolute;width:0;height:0;overflow:hidden;" aria-hidden="true">
+      <filter id="unopaq" y="-100%" height="300%" x="-100%" width="300%">
+        <feColorMatrix values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 5 0"></feColorMatrix>
+      </filter>
+      <filter id="unopaq2" y="-100%" height="300%" x="-100%" width="300%">
+        <feColorMatrix values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 10 0"></feColorMatrix>
+      </filter>
+      <filter id="unopaq3" y="-100%" height="300%" x="-100%" width="300%">
+        <feColorMatrix values="1 0 0 1 0  0 1 0 1 0  0 0 1 1 0  0 0 0 2 0"></feColorMatrix>
+      </filter>
+    </svg>
+
+    {{-- GitHub Spin Card (menggantikan MagicBento) --}}
     <div class="bento-wrap">
-      <div class="bento-section card-grid"
-           data-glow-color="99, 102, 241"
-           data-spotlight-radius="400"
-           data-particle-count="12">
-
-        <div class="magic-bento-card magic-bento-card--border-glow particle-container reveal">
-          <div class="magic-bento-card__header">
-            <div class="magic-bento-card__label">Security</div>
-            <div class="bento-icon"><i class="fas fa-shield-halved"></i></div>
+      <div class="bento-spin-wrap reveal">
+        <div class="spin-card-container">
+          <div class="spin spin-blur"></div>
+          <div class="spin spin-intense"></div>
+          <div class="backdrop"></div>
+          <div class="card-border">
+            <div class="spin spin-inside"></div>
           </div>
-          <div class="magic-bento-card__content">
-            <h2 class="magic-bento-card__title">Cybersecurity Mindset</h2>
-            <p class="magic-bento-card__description">Setiap baris kode didesain dengan prinsip "security by default" — dari input validation hingga enkripsi data.</p>
+          <div class="spin-card">
+            <div class="spin-card-header">
+              <div class="spin-card-top-header">
+                <div class="sc-icon">
+                  <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M1 2.75A.75.75 0 0 1 1.75 2h12.5a.75.75 0 0 1 0 1.5H1.75A.75.75 0 0 1 1 2.75Zm0 5A.75.75 0 0 1 1.75 7h12.5a.75.75 0 0 1 0 1.5H1.75A.75.75 0 0 1 1 7.75ZM1.75 12h12.5a.75.75 0 0 1 0 1.5H1.75a.75.75 0 0 1 0-1.5Z"></path></svg>
+                </div>
+                @php $ghUrl = $socials->firstWhere('platform', 'GitHub')?->url ?? '#'; @endphp
+                <a class="sc-gh-icon" href="{{ $ghUrl }}" target="_blank" rel="noopener">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12,2A10,10 0 0,0 2,12C2,16.42 4.87,20.17 8.84,21.5C9.34,21.58 9.5,21.27 9.5,21C9.5,20.77 9.5,20.14 9.5,19.31C6.73,19.91 6.14,17.97 6.14,17.97C5.68,16.81 5.03,16.5 5.03,16.5C4.12,15.88 5.1,15.9 5.1,15.9C6.1,15.97 6.63,16.93 6.63,16.93C7.5,18.45 8.97,18 9.54,17.76C9.63,17.11 9.89,16.67 10.17,16.42C7.95,16.17 5.62,15.31 5.62,11.5C5.62,10.39 6,9.5 6.65,8.79C6.55,8.54 6.2,7.5 6.75,6.15C6.75,6.15 7.59,5.88 9.5,7.17C10.29,6.95 11.15,6.84 12,6.84C12.85,6.84 13.71,6.95 14.5,7.17C16.41,5.88 17.25,6.15 17.25,6.15C17.8,7.5 17.45,8.54 17.35,8.79C18,9.5 18.38,10.39 18.38,11.5C18.38,15.32 16.04,16.16 13.81,16.41C14.17,16.72 14.5,17.33 14.5,18.26C14.5,19.6 14.5,20.68 14.5,21C14.5,21.27 14.66,21.59 15.17,21.5C19.14,20.16 22,16.42 22,12A10,10 0 0,0 12,2Z"></path></svg>
+                </a>
+                <div class="sc-repo">
+                  <a class="sc-repo-owner" href="{{ $ghUrl }}" target="_blank" rel="noopener">{{ $settings['hero_name'] ?? 'abarox' }}</a>
+                  <span class="sc-repo-slash">/</span>
+                  <a class="sc-repo-name" href="{{ $ghUrl }}" target="_blank" rel="noopener">portfolio</a>
+                </div>
+                <div class="sc-space"></div>
+                <div class="sc-icon">
+                  <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"></path></svg>
+                </div>
+                <div class="sc-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M2.8 2.06A1.75 1.75 0 0 1 4.41 1h7.18c.7 0 1.333.417 1.61 1.06l2.74 6.395c.04.093.06.194.06.295v4.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25v-4.5c0-.101.02-.202.06-.295Zm1.61.44a.25.25 0 0 0-.23.152L1.887 8H4.75a.75.75 0 0 1 .6.3L6.625 10h2.75l1.275-1.7a.75.75 0 0 1 .6-.3h2.863L11.82 2.652a.25.25 0 0 0-.23-.152Zm10.09 7h-2.875l-1.275 1.7a.75.75 0 0 1-.6.3h-3.5a.75.75 0 0 1-.6-.3L4.375 9.5H1.5v3.75c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25Z"></path></svg>
+                </div>
+                <div class="sc-pfp"></div>
+              </div>
+              <div class="sc-btm-header">
+                <div class="sc-tab">
+                  <div class="sc-tab-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"></path></svg></div>
+                  <div class="sc-tab-text">Code</div>
+                </div>
+                <div class="sc-tab">
+                  <div class="sc-tab-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"></path><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"></path></svg></div>
+                  <div class="sc-tab-text">Issues</div>
+                </div>
+                <div class="sc-tab sc-tab--active">
+                  <div class="sc-tab-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"></path></svg></div>
+                  <div class="sc-tab-text">Pull Requests</div>
+                </div>
+              </div>
+            </div>
+            <div class="spin-card-content">
+              <div class="sc-prs">
+                <div class="sc-pr">
+                  <div class="sc-pr-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="#63d188"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"></path></svg></div>
+                  <div class="sc-pr-text">
+                    <div class="sc-pr-title">Full Stack Portfolio — Laravel + Neon DB</div>
+                    <div class="sc-pr-desc">#{{ $projects->count() + 1 }} opened just now &middot; deployed to production</div>
+                  </div>
+                </div>
+                <div class="sc-pr">
+                  <div class="sc-pr-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="#63d188"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"></path></svg></div>
+                  <div class="sc-pr-text">
+                    <div class="sc-pr-title">Cybersecurity: Penetration Testing Toolkit</div>
+                    <div class="sc-pr-desc">#{{ $projects->count() }} &middot; OWASP Top 10 &middot; SQLi &middot; XSS &middot; CSRF</div>
+                  </div>
+                </div>
+                <div class="sc-pr">
+                  <div class="sc-pr-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="#63d188"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"></path></svg></div>
+                  <div class="sc-pr-text">
+                    <div class="sc-pr-title">AI Integration: LLM API Wrapper</div>
+                    <div class="sc-pr-desc">#{{ max($projects->count() - 1, 1) }} &middot; Python &middot; FastAPI &middot; OpenAI</div>
+                  </div>
+                </div>
+                @foreach($projects->take(5) as $p)
+                <div class="sc-pr">
+                  <div class="sc-pr-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="#63d188"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"></path></svg></div>
+                  <div class="sc-pr-text">
+                    <div class="sc-pr-title">{{ Str::limit($p->title, 55) }}</div>
+                    <div class="sc-pr-desc">{{ $p->tech_stack ?? 'Web Project' }} &middot; {{ $loop->iteration > 1 ? $loop->iteration.' days ago' : 'recently' }}</div>
+                  </div>
+                </div>
+                @endforeach
+              </div>
+            </div>
           </div>
         </div>
+      </div>{{-- end bento-spin-wrap --}}
+    </div>{{-- end bento-wrap --}}
 
-        <div class="magic-bento-card magic-bento-card--border-glow particle-container reveal reveal-delay-1">
-          <div class="magic-bento-card__header">
-            <div class="magic-bento-card__label">Projects</div>
-          </div>
-          <div class="magic-bento-card__content">
-            <div class="bento-big-num" data-count="{{ $projects->count() ?? 10 }}" data-suffix="+">10+</div>
-            <h2 class="magic-bento-card__title">Projects Selesai</h2>
-            <p class="magic-bento-card__description">Web App &middot; AI &middot; Security</p>
-          </div>
-        </div>
-
-        <div class="magic-bento-card magic-bento-card--border-glow particle-container reveal reveal-delay-2">
-          <div class="magic-bento-card__header">
-            <div class="magic-bento-card__label">Stack</div>
-            <div class="bento-icon"><i class="fas fa-laptop-code"></i></div>
-          </div>
-          <div class="magic-bento-card__content">
-            <h2 class="magic-bento-card__title">Full Stack</h2>
-            <p class="magic-bento-card__description">Frontend hingga Backend, dari pixel sempurna hingga query optimal.</p>
-          </div>
-        </div>
-
-        <div class="magic-bento-card magic-bento-card--border-glow particle-container reveal reveal-delay-3">
-          <div class="magic-bento-card__header">
-            <div class="magic-bento-card__label">Pentest</div>
-            <div class="bento-icon"><i class="fas fa-lock"></i></div>
-          </div>
-          <div class="magic-bento-card__content">
-            <h2 class="magic-bento-card__title">Penetration Testing</h2>
-            <p class="magic-bento-card__description">OWASP Top 10, SQLi, XSS, CSRF, dan berbagai teknik ethical hacking.</p>
-          </div>
-        </div>
-
-        <div class="magic-bento-card magic-bento-card--border-glow particle-container reveal reveal-delay-4">
-          <div class="magic-bento-card__header">
-            <div class="magic-bento-card__label">Education</div>
-            <div class="bento-icon"><i class="fas fa-graduation-cap"></i></div>
-          </div>
-          <div class="magic-bento-card__content">
-            <h2 class="magic-bento-card__title">Keamanan Sistem Informasi</h2>
-            <p class="magic-bento-card__description">Politeknik Negeri Bengkalis — mahasiswa aktif dengan fokus pengembangan sistem aman.</p>
-          </div>
-        </div>
-
-        <div class="magic-bento-card magic-bento-card--border-glow particle-container reveal reveal-delay-1">
-          <div class="magic-bento-card__header">
-            <div class="magic-bento-card__label">AI</div>
-            <div class="bento-icon"><i class="fas fa-robot"></i></div>
-          </div>
-          <div class="magic-bento-card__content">
-            <h2 class="magic-bento-card__title">AI Integration</h2>
-            <p class="magic-bento-card__description">Mengintegrasikan AI/ML ke dalam aplikasi web modern.</p>
-          </div>
-        </div>
-
-      </div>
-    </div>
   </div>
 </section>
 
@@ -437,45 +455,96 @@
       <p class="section-subtitle">Teknologi yang saya kuasai dalam pengembangan aplikasi dan keamanan sistem.</p>
     </div>
 
-    <div class="skills-categories">
+    {{-- Terminal Skills Grid --}}
+    <div class="terminal-skills-grid" id="terminalSkillsGrid">
       @php
-        $catIcons = [
-          'Frontend'      => '<i class="fas fa-desktop"></i>',
-          'Backend'       => '<i class="fas fa-server"></i>',
-          'Tools'         => '<i class="fas fa-toolbox"></i>',
-          'Security'      => '<i class="fas fa-shield-alt"></i>',
-          'Cybersecurity' => '<i class="fas fa-shield-halved"></i>',
-          'Database'      => '<i class="fas fa-database"></i>',
-          'Other'         => '<i class="fas fa-star"></i>',
-        ];
         $brands = ['fa-html5','fa-css3-alt','fa-js','fa-react','fa-vuejs','fa-angular','fa-sass','fa-bootstrap','fa-php','fa-python','fa-java','fa-node-js','fa-laravel','fa-docker','fa-linux','fa-git-alt','fa-github','fa-gitlab'];
+
+        /* ── Group categories into 3 terminal boxes via keyword matching ── */
+        $webDevCats   = [];
+        $cyberSecCats = [];
+        $othersCats   = [];
+
+        foreach ($skills as $cat => $catSkills) {
+          $lower = strtolower($cat);
+          if (str_contains($lower, 'web') || str_contains($lower, 'frontend') || str_contains($lower, 'front-end') || str_contains($lower, 'backend') || str_contains($lower, 'back-end') || str_contains($lower, 'database') || str_contains($lower, 'fullstack') || str_contains($lower, 'full stack') || str_contains($lower, 'development')) {
+            $webDevCats[$cat] = $catSkills;
+          } elseif (str_contains($lower, 'cyber') || str_contains($lower, 'security') || str_contains($lower, 'hacking') || str_contains($lower, 'pentest') || str_contains($lower, 'ctf')) {
+            $cyberSecCats[$cat] = $catSkills;
+          } else {
+            $othersCats[$cat] = $catSkills;
+          }
+        }
+
+        /* ── Build 3 terminal boxes in fixed order ── */
+        $terminalBoxes = [];
+        if (!empty($webDevCats))   $terminalBoxes[] = ['label'=>'web-dev@skills:~',  'cmd'=>'ls skills/webdev/',   'color'=>'#63f5a8', 'cats'=>$webDevCats,   'title'=>'Web Development'];
+        if (!empty($cyberSecCats)) $terminalBoxes[] = ['label'=>'cybersec@skills:~', 'cmd'=>'ls skills/security/', 'color'=>'#f56363', 'cats'=>$cyberSecCats, 'title'=>'Cybersecurity'];
+        if (!empty($othersCats))   $terminalBoxes[] = ['label'=>'others@skills:~',   'cmd'=>'ls skills/tools/',    'color'=>'#f5c063', 'cats'=>$othersCats,   'title'=>'Others & Tools'];
+
+        /* ── Fallback: if nothing matched, put all into one box ── */
+        if (empty($terminalBoxes)) {
+          $allCats = [];
+          foreach ($skills as $cat => $catSkills) { $allCats[$cat] = $catSkills; }
+          $terminalBoxes[] = ['label'=>'skills:~', 'cmd'=>'cat skills.list', 'color'=>'#63f5a8', 'cats'=>$allCats, 'title'=>'All Skills'];
+        }
       @endphp
-      @foreach($skills as $category => $catSkills)
-      <div class="skill-category reveal">
-        <div class="skill-cat-title">
-          {!! $catIcons[$category] ?? '<i class="fas fa-box"></i>' !!} {{ $category }}
+
+
+      @foreach($terminalBoxes as $box)
+      <div class="term-skill-card reveal" data-term-index="{{ $loop->index }}">
+        {{-- Terminal Titlebar --}}
+        <div class="term-skill-bar">
+          <div class="term-skill-dots">
+            <span class="tsd red"></span>
+            <span class="tsd yellow"></span>
+            <span class="tsd green"></span>
+          </div>
+          <span class="term-skill-title">{{ $box['label'] }}</span>
+          <span></span>
         </div>
-        <div class="skills-list">
+
+        {{-- Terminal Body --}}
+        <div class="term-skill-body">
+          {{-- Command line --}}
+          <div class="term-skill-line">
+            <span class="term-skill-prompt" style="color:{{ $box['color'] }}">{{ $box['label'] }}$</span>
+            <span class="term-skill-cmd">{{ $box['cmd'] }}</span>
+          </div>
+
+          {{-- Output: category header + skill bars --}}
+          @foreach($box['cats'] as $category => $catSkills)
+          <div class="term-skill-line term-cat-header">
+            <span style="color:{{ $box['color'] }};font-weight:700;"># {{ $category }}</span>
+          </div>
           @foreach($catSkills as $skill)
           @php
             $icon   = $skill->icon ?? '';
             $name   = $skill->name ?? '';
             $pct    = (int)($skill->level ?? 80);
+            $filled = (int)round($pct / 5);  // 20 total chars
+            $empty  = 20 - $filled;
             $prefix = in_array($icon, $brands) ? 'fab' : 'fas';
+            $hashBar = str_repeat('#', $filled) . str_repeat(' ', $empty);
           @endphp
-          <div class="skill-item">
-            <div class="skill-header">
-              <div class="skill-name">
-                @if($icon)<i class="{{ $prefix }} {{ $icon }}"></i>@endif
-                {{ $name }}
-              </div>
-              <span class="skill-percent">{{ $pct }}%</span>
+          <div class="term-skill-item" data-pct="{{ $pct }}">
+            <div class="term-skill-name-row">
+              @if($icon)<i class="{{ $prefix }} {{ $icon }}" style="color:{{ $box['color'] }};margin-right:6px;font-size:0.8rem;"></i>@endif
+              <span class="term-skill-name">{{ $name }}</span>
             </div>
-            <div class="skill-bar">
-              <div class="skill-bar-fill" data-width="{{ $pct }}%" style="width:0%"></div>
+            <div class="term-skill-bar-row">
+              <span class="term-hash-bar" data-filled="{{ $filled }}" data-empty="{{ $empty }}" data-color="{{ $box['color'] }}">[<span class="term-hash-fill" style="color:{{ $box['color'] }}"></span><span class="term-hash-empty"></span>]</span>
+              <span class="term-pct-label">{{ $pct }}%</span>
             </div>
           </div>
           @endforeach
+          @endforeach
+
+          {{-- Blinking cursor --}}
+          <div class="term-skill-line" style="margin-top:8px;">
+            <span class="term-skill-prompt" style="color:{{ $box['color'] }}">{{ $box['label'] }}$</span>
+            <span class="term-cursor-blink"></span>
+          </div>
         </div>
       </div>
       @endforeach
@@ -633,29 +702,47 @@
           </div>
         </div>
 
-        {{-- Social Links --}}
-        <div class="social-links">
-          @if(!empty($settings['social_github']))
-          <a href="{{ $settings['social_github'] }}" target="_blank" rel="noopener" class="social-link" title="GitHub">
-            <i class="fab fa-github"></i>
-          </a>
-          @endif
-          @if(!empty($settings['social_linkedin']))
-          <a href="{{ $settings['social_linkedin'] }}" target="_blank" rel="noopener" class="social-link" title="LinkedIn">
-            <i class="fab fa-linkedin-in"></i>
-          </a>
-          @endif
-          @if(!empty($settings['social_instagram']))
-          <a href="{{ $settings['social_instagram'] }}" target="_blank" rel="noopener" class="social-link" title="Instagram">
-            <i class="fab fa-instagram"></i>
-          </a>
-          @endif
-          @if(!empty($settings['contact_email']))
-          <a href="mailto:{{ $settings['contact_email'] }}" class="social-link" title="Email">
-            <i class="fas fa-envelope"></i>
-          </a>
-          @endif
+        {{-- Social Links from DB --}}
+        @if($socials->isNotEmpty())
+        <div class="social-links-tooltip-row">
+          @foreach($socials as $social)
+          @php
+            $platformKey = strtolower($social->platform);
+            $color = $social->accent_color ?? '#00d4ff';
+          @endphp
+          <div class="tooltip-container" style="--social-color: {{ $color }};">
+            <div class="tooltip">
+              <div class="profile" style="background: {{ $color }}22; border-color: {{ $color }}55;">
+                <div class="user">
+                  <div class="img" style="border-color: {{ $color }}; color: {{ $color }};">
+                    {{ \App\Helpers\SocialIconHelper::initials($social->platform) }}
+                  </div>
+                  <div class="details">
+                    <div class="name" style="color: {{ $color }};">{{ $social->platform }}</div>
+                    <div class="username">{{ $social->label }}</div>
+                  </div>
+                </div>
+                <div class="about">Temukan saya di {{ $social->platform }}</div>
+              </div>
+            </div>
+            <div class="text">
+              <a class="icon" href="{{ $social->url }}" target="_blank" rel="noopener">
+                <div class="layer" style="border-color: {{ $color }}; box-shadow: 0 0 15px {{ $color }}99, 0 0 20px {{ $color }}66;">
+                  <span style="border-color: {{ $color }};" ></span>
+                  <span style="border-color: {{ $color }};" ></span>
+                  <span style="border-color: {{ $color }};" ></span>
+                  <span style="border-color: {{ $color }};" ></span>
+                  <span class="social-platform-icon" style="background: {{ $color }}; border-radius: 50%; display:flex; align-items:center; justify-content:center;">
+                    {!! \App\Helpers\SocialIconHelper::svg($social->platform) !!}
+                  </span>
+                </div>
+                <div class="text" style="color: {{ $color }};">{{ $social->platform }}</div>
+              </a>
+            </div>
+          </div>
+          @endforeach
         </div>
+        @endif
       </div>
 
       {{-- Contact Form --}}

@@ -404,8 +404,73 @@
 
 
 /* ══════════════════════════════════════════════════════════
-   7. Skill Bar Animation
+   7. Terminal Skill Hash Bars + Hover Blur Focus
    ══════════════════════════════════════════════════════════ */
+(function initTerminalSkills() {
+  const grid  = document.getElementById('terminalSkillsGrid');
+  if (!grid) return;
+
+  const cards = grid.querySelectorAll('.term-skill-card');
+
+  /* ── Hover blur / focus effect ── */
+  cards.forEach(card => {
+    card.addEventListener('mouseenter', () => {
+      grid.classList.add('has-hover');
+      cards.forEach(c => c.classList.remove('is-focused'));
+      card.classList.add('is-focused');
+    });
+    card.addEventListener('mouseleave', () => {
+      card.classList.remove('is-focused');
+      // small delay so transition plays before removing class
+      setTimeout(() => {
+        const anyFocused = grid.querySelector('.is-focused');
+        if (!anyFocused) grid.classList.remove('has-hover');
+      }, 50);
+    });
+  });
+
+  /* ── Hash bar fill-in on scroll into view ── */
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (!e.isIntersecting) return;
+      const card = e.target;
+      const hashBars = card.querySelectorAll('.term-hash-bar');
+
+      hashBars.forEach((bar, idx) => {
+        const filled = parseInt(bar.dataset.filled, 10) || 0;
+        const empty  = parseInt(bar.dataset.empty,  10) || 0;
+        const fillEl = bar.querySelector('.term-hash-fill');
+        const emptyEl= bar.querySelector('.term-hash-empty');
+        if (!fillEl || !emptyEl) return;
+
+        // Reset
+        fillEl.textContent  = '';
+        emptyEl.textContent = ' '.repeat(filled + empty);
+
+        // Stagger start per item, then fill tick by tick
+        const startDelay = idx * 80;        // ms between each skill
+        const tickSpeed  = 55;              // ms per '#' char
+
+        setTimeout(() => {
+          let count = 0;
+          const tick = setInterval(() => {
+            count++;
+            fillEl.textContent  = '#'.repeat(count);
+            emptyEl.textContent = ' '.repeat(Math.max(0, filled + empty - count));
+            if (count >= filled) clearInterval(tick);
+          }, tickSpeed);
+        }, startDelay);
+      });
+
+      io.unobserve(card);
+    });
+  }, { threshold: 0.25 });
+
+
+  cards.forEach(c => io.observe(c));
+})();
+
+/* keep old skill bars working (if any remain on page) */
 (function initSkillBars() {
   const bars = document.querySelectorAll('.skill-bar-fill[data-width]');
   if (!bars.length) return;
@@ -419,6 +484,7 @@
   }, { threshold: 0.3 });
   bars.forEach(b => io.observe(b));
 })();
+
 
 
 /* ══════════════════════════════════════════════════════════
@@ -506,7 +572,7 @@ window.tiltCardLeave = function(fig) {
    12. Bento big num counter
    ══════════════════════════════════════════════════════════ */
 (function initBentoNum() {
-  const nums = document.querySelectorAll('.bento-big-num[data-count]');
+  const nums = document.querySelectorAll('.bento-big-num[data-count], .bento-mini-bignum[data-count]');
   if (!nums.length) return;
   const io = new IntersectionObserver(entries => {
     entries.forEach(e => {
