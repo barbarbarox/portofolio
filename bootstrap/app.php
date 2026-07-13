@@ -20,6 +20,14 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*'),
         );
+        
+        // INTERCEPT ALL EXCEPTIONS TO PREVENT THE "VIEW NOT FOUND" CRASH
+        $exceptions->render(function (\Throwable $e, Request $request) {
+            http_response_code(500);
+            echo "<h1>THE REAL ERROR:</h1>";
+            echo "<pre>" . htmlspecialchars((string) $e) . "</pre>";
+            die();
+        });
     })->create();
 
 if (isset($_ENV['APP_STORAGE'])) {
