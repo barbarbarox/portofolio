@@ -218,14 +218,21 @@
     }
     /* accent color applied dynamically via inline style */
 
-    .proj-emoji {
-      font-size: 2rem;
-      display: block;
+    .proj-icon-badge {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      background: rgba(0,0,0,0.25);
+      border: 1px solid rgba(255,255,255,0.15);
       margin-bottom: 0.75rem;
       transform: translate3d(0, 0, 50px);
       transition: transform 0.5s ease-in-out;
     }
-    .proj-card:hover .proj-emoji { transform: translate3d(0, 0, 70px); }
+    .proj-icon-badge i { font-size: 1.25rem; color: rgba(0,0,0,0.75); }
+    .proj-card:hover .proj-icon-badge { transform: translate3d(0, 0, 70px); }
 
     .proj-title {
       display: inline-block;
@@ -433,13 +440,14 @@
       align-items: center;
       z-index: 3;
     }
-    .pm-emoji-badge {
+    .pm-icon-badge {
       height: 100%;
       display: flex;
       align-items: center;
       padding: 2px 0 2px 14px;
       font-size: 1.1rem;
     }
+    .pm-icon-badge i { color: rgba(0,0,0,0.65); font-size: 1.1rem; }
     .pm-links {
       height: 100%;
       padding: 4px 12px;
@@ -579,7 +587,7 @@
               <span class="proj-year" style="color: {{ $accent }};">{{ $year }}</span>
             </div>
             <div class="proj-content-box" style="background: {{ $accent }};">
-              <span class="proj-emoji">{{ $project->emoji ?? '🚀' }}</span>
+              <div class="proj-icon-badge"><i class="fas fa-code-branch"></i></div>
               <span class="proj-title">{{ $project->title }}</span>
               <p class="proj-description">{{ $project->description }}</p>
               @if(!empty($tags))
@@ -617,7 +625,7 @@
             <div class="pm-top" style="background: linear-gradient(135deg, {{ $accent }}cc 0%, {{ $accent }}66 100%);">
               <div class="pm-border"></div>
               <div class="pm-icons">
-                <div class="pm-emoji-badge">{{ $project->emoji ?? '🚀' }}</div>
+                <div class="pm-icon-badge"><i class="fas fa-code-branch"></i></div>
                 <div class="pm-links">
                   @if(!empty($project->github_url))
                     <a href="{{ $project->github_url }}" target="_blank" rel="noopener" class="pm-link" title="GitHub">

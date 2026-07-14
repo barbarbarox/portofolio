@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ContactController;
+use App\Http\Controllers\CvController;
 use App\Http\Controllers\PortfolioController;
 use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\DashboardController;
@@ -16,6 +17,7 @@ use App\Http\Controllers\Admin\HeroCardController;
 Route::get('/', [PortfolioController::class, 'index'])->name('home');
 Route::get('/projects', [App\Http\Controllers\ProjectsPageController::class, 'index'])->name('projects.public');
 Route::post('/contact', [ContactController::class, 'store'])->name('contact.store');
+Route::get('/cv', [CvController::class, 'show'])->name('cv');
 
 // Admin auth
 Route::prefix('admin')->name('admin.')->group(function () {

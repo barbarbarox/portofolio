@@ -46,6 +46,7 @@
         <li><a href="#projects"       class="pill" data-section="projects"       role="menuitem"><span class="hover-circle"></span><span class="label-stack"><span class="pill-label">Projects</span><span class="pill-label-hover" aria-hidden="true">Projects</span></span></a></li>
         <li><a href="#lanyard-section" class="pill" data-section="lanyard-section" role="menuitem"><span class="hover-circle"></span><span class="label-stack"><span class="pill-label">ID Card</span><span class="pill-label-hover" aria-hidden="true">ID Card</span></span></a></li>
         <li><a href="#contact"        class="pill" data-section="contact"        role="menuitem"><span class="hover-circle"></span><span class="label-stack"><span class="pill-label">Contact</span><span class="pill-label-hover" aria-hidden="true">Contact</span></span></a></li>
+        <li><a href="{{ route('cv') }}"  class="pill"                              role="menuitem"><span class="hover-circle"></span><span class="label-stack"><span class="pill-label">CV</span><span class="pill-label-hover" aria-hidden="true">CV</span></span></a></li>
       </ul>
     </div>
 
@@ -102,6 +103,7 @@
     <a class="menu-item purple" href="#projects"> <i class="fas fa-briefcase"></i> </a>
     <a class="menu-item orange" href="#lanyard-section"> <i class="fas fa-id-card"></i> </a>
     <a class="menu-item lightblue" href="#contact"> <i class="fas fa-envelope"></i> </a>
+    <a class="menu-item" href="{{ route('cv') }}" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);"> <i class="fas fa-file-alt"></i> </a>
   </nav>
 </div>
 
@@ -166,6 +168,9 @@
       <div class="hero-actions">
         <a href="#projects" class="btn-primary">
           <i class="fas fa-rocket"></i> Lihat Projects
+        </a>
+        <a href="{{ route('cv') }}" class="btn-outline" style="border-color:rgba(99,102,241,0.5);color:#a5b4fc;">
+          <i class="fas fa-file-alt"></i> CV
         </a>
         <a href="#contact" class="btn-outline">
           <i class="fas fa-paper-plane"></i> Hubungi Saya
