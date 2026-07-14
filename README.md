@@ -6,7 +6,7 @@ Welcome to the source code of my interactive developer portfolio! This project i
 
 This project is built using a modern stack with a strong emphasis on a custom, lightweight, and performant frontend.
 
-### Frontend (UI/UX)
+### Frontend (UI/UX) 
 - **HTML5 (Blade Templating):** Semantic HTML structure rendered dynamically via Laravel's Blade engine.
 - **Vanilla CSS3:** Fully custom styling without heavy frameworks (No Tailwind or Bootstrap). It features:
   - **Glassmorphism:** Leveraging `backdrop-filter` for modern frosted-glass effects.
@@ -77,4 +77,3 @@ To run this project on your local machine or access it via a local network (e.g.
 ---
 
 *Designed and engineered with a focus on security by default and pixel-perfect aesthetics.*
-# portofolio
